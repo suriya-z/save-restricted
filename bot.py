@@ -9,6 +9,18 @@ from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, 
 from pyrogram.errors import ChatForwardsRestricted, FloodWait, PeerIdInvalid
 import config
 import database
+from flask import Flask
+import threading
+
+web_app = Flask(__name__)
+
+@web_app.route('/')
+def home():
+    return "Bot is running online!"
+
+def run_server():
+    web_app.run(host="0.0.0.0", port=8080)
+
 
 app = Client(
     "bot_client",
@@ -567,6 +579,10 @@ async def main():
     print("Starting Bot Client...")
     await app.start()
     print("Bot Client Started!")
+    
+    print("\nStarting dummy web server for Choreo on port 8080...")
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
     
     print("\nBot is running! Press Ctrl+C to stop.")
     
