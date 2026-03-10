@@ -26,14 +26,16 @@ app = Client(
     "bot_client",
     api_id=config.API_ID,
     api_hash=config.API_HASH,
-    bot_token=config.BOT_TOKEN
+    bot_token=config.BOT_TOKEN,
+    ipv6=False
 )
 
 user_app = Client(
     "user_client",
     api_id=config.API_ID,
     api_hash=config.API_HASH,
-    session_string=config.SESSION_STRING
+    session_string=config.SESSION_STRING,
+    ipv6=False
 )
 
 TG_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:c/)?(?:[a-zA-Z0-9_]+|[0-9]+)/[0-9]+"
