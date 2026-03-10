@@ -27,7 +27,8 @@ app = Client(
     api_id=config.API_ID,
     api_hash=config.API_HASH,
     bot_token=config.BOT_TOKEN,
-    ipv6=False
+    ipv6=False,
+    max_concurrent_transmissions=3
 )
 
 user_app = Client(
@@ -35,7 +36,9 @@ user_app = Client(
     api_id=config.API_ID,
     api_hash=config.API_HASH,
     session_string=config.SESSION_STRING,
-    ipv6=False
+    ipv6=False,
+    in_memory=True,  # Prevent SQLite locks
+    max_concurrent_transmissions=3
 )
 
 TG_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:c/)?(?:[a-zA-Z0-9_]+|[0-9]+)/[0-9]+"
