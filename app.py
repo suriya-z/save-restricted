@@ -1,15 +1,21 @@
-import threading
 import asyncio
+
+# CRITICAL: Create an event loop BEFORE importing bot.py
+# Pyrogram's sync.py calls asyncio.get_event_loop() at import time,
+# which fails in Python 3.10+ if no loop exists.
+asyncio.set_event_loop(asyncio.new_event_loop())
+
+import threading
 from bot import web_app, main
 
 def start_bot():
-    """Run the Pyrogram bot in a separate thread with its own event loop."""
+    """Run the Pyrogram bot in a background thread with its own event loop."""
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(main())
     except Exception as e:
-        print(f"Bot error: {e}")
+        print(f"Bot crashed: {e}")
     finally:
         loop.close()
 
