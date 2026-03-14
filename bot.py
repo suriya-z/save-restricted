@@ -147,13 +147,6 @@ def get_welcome_text(user_mention):
         "2️⃣ **Download Media:** Send any post link from that channel to download it!\n"
         "  ├ 🔗 **Private:** `https://t.me/c/12345/6789`\n"
         "  └ 🔗 **Public:** `https://t.me/channel/123`\n\n"
-        "3️⃣ **Bulk Download:** Send `/dump <post_link> <amount>` to download multiple media files at once from that channel!\n"
-        "4️⃣ **Cancel:** Send `/cancel` at any time to halt an ongoing bulk download.\n\n"
-        "**⚡️ Features:**\n"
-        "  • 🤖 Auto-Join private channels via invite links\n"
-        "  • 📥 Fast downloads with live progress bars\n"
-        "  • 🚀 Bypass save & forward restrictions seamlessly\n"
-        "  • 🎥 Support for high-quality videos and documents\n\n"
         "⚠️ *Note: I can only download posts from channels my User Session has joined.*"
     )
 
