@@ -4,7 +4,7 @@ import asyncio
 import time
 import math
 from urllib.parse import urlparse
-from pyrogram import Client, filters, idle
+from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.errors import ChatForwardsRestricted, FloodWait, PeerIdInvalid
 import config
@@ -587,7 +587,9 @@ async def main():
     
     print("\nBot is running!")
     
-    await idle()
+    # idle() uses OS signals which only work in the main thread.
+    # Since we run in a background thread on Render, use Event instead.
+    await asyncio.Event().wait()
 
     print("\nStopping...")
     await app.stop()
