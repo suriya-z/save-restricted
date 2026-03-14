@@ -566,6 +566,13 @@ async def main():
         print("Exiting due to missing configuration.")
         return
 
+    # Start the web server FIRST so Render detects the open port immediately
+    port = int(os.environ.get("PORT", 8080))
+    print(f"\nStarting web server on port {port}...")
+    server_thread = threading.Thread(target=lambda: web_app.run(host="0.0.0.0", port=port), daemon=True)
+    server_thread.start()
+    print("Web server started!")
+
     print("Starting User Client...")
     await user_app.start()
     print("User Client Started!")
@@ -577,17 +584,13 @@ async def main():
         dialogs = 0
         async for dialog in user_app.get_dialogs(limit=500):
             dialogs += 1
-        print(f"✅ Successfully cached {dialogs} user dialogs!")
+        print(f"\u2705 Successfully cached {dialogs} user dialogs!")
     except Exception as e:
         print(f"Error caching dialogs: {e}")
 
     print("Starting Bot Client...")
     await app.start()
     print("Bot Client Started!")
-    
-    print("\nStarting dummy web server for Choreo on port 8080...")
-    server_thread = threading.Thread(target=run_server, daemon=True)
-    server_thread.start()
     
     print("\nBot is running! Press Ctrl+C to stop.")
     
