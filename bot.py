@@ -4,7 +4,7 @@ import asyncio
 import time
 import math
 from urllib.parse import urlparse
-from pyrogram import Client, filters
+from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 from pyrogram.errors import ChatForwardsRestricted, FloodWait, PeerIdInvalid
 import config
@@ -566,12 +566,20 @@ async def main():
         print("Exiting due to missing configuration.")
         return
 
+    # Start Flask in background thread FIRST so Render detects the port immediately
+    port = int(os.environ.get("PORT", 8080))
+    print(f"Starting web server on port {port}...")
+    flask_thread = threading.Thread(
+        target=lambda: web_app.run(host="0.0.0.0", port=port),
+        daemon=True
+    )
+    flask_thread.start()
+    print("Web server started!")
+
     print("Starting User Client...")
     await user_app.start()
     print("User Client Started!")
 
-    # Fix: String sessions forget private channels on boot. 
-    # Fetching active dialogs builds the SQLite cache in-memory instantly.
     print("Caching all local chats to prevent PeerIdInvalid errors... (Please wait)")
     try:
         dialogs = 0
@@ -587,9 +595,7 @@ async def main():
     
     print("\nBot is running!")
     
-    # idle() uses OS signals which only work in the main thread.
-    # Since we run in a background thread on Render, use Event instead.
-    await asyncio.Event().wait()
+    await idle()
 
     print("\nStopping...")
     await app.stop()
