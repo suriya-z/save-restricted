@@ -566,13 +566,6 @@ async def main():
         print("Exiting due to missing configuration.")
         return
 
-    # Start the web server FIRST so Render detects the open port immediately
-    port = int(os.environ.get("PORT", 8080))
-    print(f"\nStarting web server on port {port}...")
-    server_thread = threading.Thread(target=lambda: web_app.run(host="0.0.0.0", port=port), daemon=True)
-    server_thread.start()
-    print("Web server started!")
-
     print("Starting User Client...")
     await user_app.start()
     print("User Client Started!")
@@ -592,7 +585,7 @@ async def main():
     await app.start()
     print("Bot Client Started!")
     
-    print("\nBot is running! Press Ctrl+C to stop.")
+    print("\nBot is running!")
     
     await idle()
 
