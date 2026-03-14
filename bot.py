@@ -1,6 +1,10 @@
 import re
 import os
 import asyncio
+
+# MUST be before any pyrogram import — Python 3.10+ has no default event loop
+asyncio.set_event_loop(asyncio.new_event_loop())
+
 import time
 import math
 from urllib.parse import urlparse
