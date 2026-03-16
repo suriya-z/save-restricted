@@ -798,13 +798,20 @@ async def clone_handler(client: Client, message: Message):
     source_link = message.command[1]
     dest_chat = message.command[2]
     
+    # If the user provided a raw purely numeric ID, cast to int.
+    try:
+        dest_chat = int(dest_chat)
+    except ValueError:
+        pass # It's a username or string
+    
     src_chat_id, _ = parse_link(source_link)
     if not src_chat_id:
         await message.reply_text("❌ Invalid source link.")
         return
         
     src_chat_str = str(src_chat_id)
-    if not src_chat_str.startswith("-100") and src_chat_str.isdigit():
+    # Only add -100 if it's purely digits (which means it's a private chat ID missing the prefix)
+    if src_chat_str.isdigit() and not src_chat_str.startswith("-100"):
         src_chat_str = f"-100{src_chat_str}"
         
     uid = str(message.from_user.id)
@@ -818,7 +825,7 @@ async def clone_handler(client: Client, message: Message):
         test_msg = await app.send_message(dest_chat, "🔄 Cloner Bot Access Test")
         await test_msg.delete()
     except Exception as e:
-        await message.reply_text(f"❌ Cannot access destination channel `{dest_chat}`.\nMake sure I am added as an Admin there!\n\nError: `{e}`")
+        await message.reply_text(f"❌ Cannot access destination `{dest_chat}`.\nMake sure I am added as an Admin there!\n\n*(Note: If it's a private group/channel, you must use its ID starting with -100)*\n\nError: `{e}`")
         return
         
     # Start clone job
