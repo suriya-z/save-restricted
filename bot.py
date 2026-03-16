@@ -846,7 +846,7 @@ async def cancelclone_handler(client: Client, message: Message):
     else:
         await message.reply_text("You don't have any active clone jobs.")
 
-@user_app.on_message()
+@user_app.on_message(~filters.private)
 async def watcher_listener(client: Client, message: Message):
     if not message.chat:
         return
