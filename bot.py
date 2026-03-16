@@ -475,7 +475,7 @@ async def dump_handler(client: Client, message: Message):
     finally:
         ACTIVE_TASKS.pop(message.from_user.id, None)
 
-@app.on_message(filters.regex(TG_LINK_REGEX) & filters.private)
+@app.on_message(filters.regex(TG_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start"]))
 async def handle_link(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("You are not authorized to use this bot.")
