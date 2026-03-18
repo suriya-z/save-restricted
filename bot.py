@@ -33,6 +33,7 @@ app = Client(
     api_hash=config.API_HASH,
     bot_token=config.BOT_TOKEN,
     ipv6=False,
+    sleep_threshold=60,   # Wait up to 60s before raising FloodWait
     max_concurrent_transmissions=3
 )
 
@@ -43,6 +44,7 @@ user_app = Client(
     session_string=config.SESSION_STRING,
     ipv6=False,
     in_memory=True,  # Prevent SQLite locks
+    sleep_threshold=60,
     max_concurrent_transmissions=3
 )
 
@@ -765,16 +767,19 @@ async def run_cloner_loop(user_id: str, status_msg: Message):
                 except Exception as e:
                     print(f"Clone upload error: {e}")
                     
-            # Chunk finished, save state
+            # Chunk finished, update counters
             current_id += chunk_size
             CLONE_JOBS[user_id]["last_msg"] = current_id
             CLONE_JOBS[user_id]["total_cloned"] = total_cloned
-            await save_db_state("clone_update", {"user_id": user_id, **CLONE_JOBS[user_id]})
             
-            try:
-                await status_msg.edit_text(f"🔄 **Clone Progress:**\n\nProcessed up to message `{current_id}/{max_id}`.\nCloned **{total_cloned}** items so far...")
-            except:
-                pass
+            # Only save DB state & update status every 10 chunks (500 msgs) to avoid flooding API
+            chunk_counter = (current_id // chunk_size) % 10
+            if chunk_counter == 0:
+                await save_db_state("clone_update", {"user_id": user_id, **CLONE_JOBS[user_id]})
+                try:
+                    await status_msg.edit_text(f"🔄 **Clone Progress:**\n\nProcessed up to message `{current_id}/{max_id}`.\nCloned **{total_cloned}** items so far...")
+                except:
+                    pass
                 
         if CLONE_JOBS.get(user_id, {}).get("active") and current_id > max_id:
              await status_msg.edit_text(f"✅ **Clone Job Complete!**\n\nSuccessfully cloned **{total_cloned}** items to `{dest_chat}`.")
