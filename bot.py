@@ -183,6 +183,12 @@ async def get_user_client(user_id: int):
             sleep_threshold=60
         )
         await client.start()
+        # Build entity/peer cache so PeerIdInvalid doesn't occur on first request
+        try:
+            async for _ in client.get_dialogs(limit=500):
+                pass
+        except Exception:
+            pass
         return client
     except Exception as e:
         print(f"Failed to start personal client for {user_id}: {e}")
@@ -798,14 +804,28 @@ async def process_download_job(job: dict):
 
             user_msg = None
             try:
+                # If using personal client, resolve the peer first to avoid PeerIdInvalid
+                if personal_client:
+                    try:
+                        await personal_client.get_chat(chat_id)
+                    except Exception:
+                        pass
                 user_msg = await downloader.get_messages(chat_id, msg_id)
             except Exception as e:
-                if "invalid" in str(e).lower() or "peer_id" in str(e).lower():
+                err_str = str(e).lower()
+                if "invalid" in err_str or "peer_id" in err_str:
+                    # Try raw ID
                     try:
                         raw_id = int(str(chat_id).replace("-100", ""))
                         user_msg = await downloader.get_messages(raw_id, msg_id)
-                    except:
+                    except Exception:
                         pass
+                    # If personal client failed, fall back to shared user_app
+                    if not user_msg and personal_client:
+                        try:
+                            user_msg = await user_app.get_messages(chat_id, msg_id)
+                        except Exception:
+                            pass
                 if not user_msg:
                     raise e
 
