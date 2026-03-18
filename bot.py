@@ -1,7 +1,6 @@
 import re
 import os
 import asyncio
-import json
 
 # MUST be before any pyrogram import — Python 3.10+ has no default event loop
 asyncio.set_event_loop(asyncio.new_event_loop())
@@ -33,7 +32,7 @@ app = Client(
     api_hash=config.API_HASH,
     bot_token=config.BOT_TOKEN,
     ipv6=False,
-    sleep_threshold=60,   # Wait up to 60s before raising FloodWait
+    sleep_threshold=60,
     max_concurrent_transmissions=3
 )
 
@@ -43,66 +42,14 @@ user_app = Client(
     api_hash=config.API_HASH,
     session_string=config.SESSION_STRING,
     ipv6=False,
-    in_memory=True,  # Prevent SQLite locks
+    in_memory=True,
     sleep_threshold=60,
     max_concurrent_transmissions=3
 )
 
-# --- IN-MEMORY DB (Persisted to Log Channel) ---
+# In-memory watcher state (resets on bot restart)
 # Format: { "source_chat_id": [user_id_1, user_id_2] }
 WATCHED_CHANNELS = {}
-
-# Format: { "user_id": { "source_chat": chat_id, "dest_chat": chat_id, "last_msg": msg_id, "active": True } }
-CLONE_JOBS = {}
-
-async def save_db_state(action: str, data: dict):
-    if not config.LOG_CHANNEL:
-        return
-    payload = {"action": action, "data": data}
-    try:
-        await app.send_message(
-            config.LOG_CHANNEL, 
-            f"`##DB_STATE##\n{json.dumps(payload)}\n##DB_STATE##`"
-        )
-    except Exception as e:
-        print(f"Failed to save DB state: {e}")
-
-async def load_db_state():
-    if not config.LOG_CHANNEL:
-        return
-    print("Loading database state from Log Channel...")
-    try:
-        # Read the last 50 messages from the log channel to reconstruct state
-        async for msg in app.get_chat_history(config.LOG_CHANNEL, limit=50):
-            if msg.text and "##DB_STATE##" in msg.text:
-                try:
-                    # Extract JSON between the markers
-                    json_str = msg.text.split("##DB_STATE##")[1].strip()
-                    payload = json.loads(json_str)
-                    
-                    if payload["action"] == "watch" and "data" in payload:
-                        source_chat = str(payload["data"].get("source_chat"))
-                        user_id = payload["data"].get("user_id")
-                        if source_chat and user_id:
-                            if source_chat not in WATCHED_CHANNELS:
-                                WATCHED_CHANNELS[source_chat] = []
-                            # Avoid duplicates from reading history
-                            if user_id not in WATCHED_CHANNELS[source_chat]:
-                                WATCHED_CHANNELS[source_chat].append(user_id)
-                                
-                    elif payload["action"] == "clone_update" and "data" in payload:
-                        user_id = str(payload["data"].get("user_id"))
-                        # Let the newest recorded update take precedence
-                        if user_id not in CLONE_JOBS:
-                            CLONE_JOBS[user_id] = payload["data"]
-                            
-                except Exception as e:
-                    print(f"Failed to parse DB_STATE message: {e}")
-        
-        print(f"✅ DB Loaded: {len(WATCHED_CHANNELS)} watched channels, {len(CLONE_JOBS)} active clone jobs.")
-    except Exception as e:
-        print(f"Error loading DB state: {e}")
-
 
 TG_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:c/)?(?:[a-zA-Z0-9_]+|[0-9]+)/[0-9]+"
 JOIN_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:joinchat/|\+)[a-zA-Z0-9_\-]+"
@@ -680,183 +627,8 @@ async def watch_handler(client: Client, message: Message):
         return
         
     WATCHED_CHANNELS[chat_id_str].append(message.from_user.id)
-    await save_db_state("watch", {"source_chat": chat_id_str, "user_id": message.from_user.id})
-    
     await message.reply_text(f"✅ **Watcher Activated!**\n\nI am now monitoring channel `{chat_id_str}` 24/7. Any new files or videos posted there will be instantly sent to you.")
 
-async def run_cloner_loop(user_id: str, status_msg: Message):
-    job = CLONE_JOBS.get(user_id)
-    if not job or not job.get("active"):
-        return
-        
-    src_chat = job["source_chat"]
-    dest_chat = job["dest_chat"]
-    last_msg_id = int(job.get("last_msg", 0))
-    total_cloned = int(job.get("total_cloned", 0))
-    
-    try:
-        chunk_size = 50
-        current_id = last_msg_id if last_msg_id > 0 else 1
-        
-        # Determine the latest message ID
-        latest_msg = None
-        async for msg in user_app.get_chat_history(src_chat, limit=1):
-            latest_msg = msg
-            break
-            
-        if not latest_msg:
-            await status_msg.edit_text("❌ Could not read history from source channel.")
-            return
-            
-        max_id = latest_msg.id
-        
-        while current_id <= max_id:
-            if not CLONE_JOBS.get(user_id, {}).get("active"):
-                await status_msg.edit_text("🛑 **Clone Job Cancelled by User.**")
-                break
-                
-            msg_ids_to_fetch = list(range(current_id, min(current_id + chunk_size, max_id + 1)))
-            
-            try:
-                messages = await user_app.get_messages(src_chat, message_ids=msg_ids_to_fetch)
-            except Exception as e:
-                print(f"Clone fetch error: {e}")
-                messages = []
-                
-            for msg in messages:
-                if not CLONE_JOBS.get(user_id, {}).get("active"):
-                    break
-                    
-                if msg.empty:
-                    continue
-                    
-                current_id = max(current_id, msg.id)
-                
-                try:
-                    if msg.media:
-                        file_path = await user_app.download_media(msg)
-                        if file_path:
-                            caption = msg.caption if msg.caption else ""
-                            if msg.photo:
-                                await app.send_photo(dest_chat, photo=file_path, caption=caption)
-                            elif msg.video:
-                                await app.send_video(dest_chat, video=file_path, caption=caption)
-                            elif msg.document:
-                                await app.send_document(dest_chat, document=file_path, caption=caption)
-                            elif msg.audio:
-                                await app.send_audio(dest_chat, audio=file_path, caption=caption)
-                            elif msg.voice:
-                                await app.send_voice(dest_chat, voice=file_path, caption=caption)
-                                
-                            database.increment_downloads()
-                            total_cloned += 1
-                            
-                            if os.path.exists(file_path):
-                                os.remove(file_path)
-                            
-                            # Crucial rate limit avoidance
-                            await asyncio.sleep(4) 
-                            
-                    elif msg.text:
-                        await app.send_message(dest_chat, msg.text)
-                        total_cloned += 1
-                        await asyncio.sleep(1.5)
-                        
-                except FloodWait as fw:
-                    await asyncio.sleep(fw.value)
-                except Exception as e:
-                    print(f"Clone upload error: {e}")
-                    
-            # Chunk finished, update counters
-            current_id += chunk_size
-            CLONE_JOBS[user_id]["last_msg"] = current_id
-            CLONE_JOBS[user_id]["total_cloned"] = total_cloned
-            
-            # Only save DB state & update status every 10 chunks (500 msgs) to avoid flooding API
-            chunk_counter = (current_id // chunk_size) % 10
-            if chunk_counter == 0:
-                await save_db_state("clone_update", {"user_id": user_id, **CLONE_JOBS[user_id]})
-                try:
-                    await status_msg.edit_text(f"🔄 **Clone Progress:**\n\nProcessed up to message `{current_id}/{max_id}`.\nCloned **{total_cloned}** items so far...")
-                except:
-                    pass
-                
-        if CLONE_JOBS.get(user_id, {}).get("active") and current_id > max_id:
-             await status_msg.edit_text(f"✅ **Clone Job Complete!**\n\nSuccessfully cloned **{total_cloned}** items to `{dest_chat}`.")
-             CLONE_JOBS[user_id]["active"] = False
-             await save_db_state("clone_update", {"user_id": user_id, **CLONE_JOBS[user_id]})
-            
-    except Exception as e:
-        await status_msg.edit_text(f"❌ **Clone Job Error:** `{e}`")
-        if user_id in CLONE_JOBS:
-            CLONE_JOBS[user_id]["active"] = False
-
-@app.on_message(filters.command("clone") & filters.private)
-async def clone_handler(client: Client, message: Message):
-    if not is_authorized(message.from_user.id):
-        return
-        
-    if len(message.command) < 3:
-        await message.reply_text("❌ Usage: `/clone <source_channel_link> <destination_channel_id>`\n\nMake sure the bot is an admin in the destination channel!")
-        return
-        
-    source_link = message.command[1]
-    dest_chat = message.command[2]
-    
-    # If the user provided a raw purely numeric ID, cast to int.
-    try:
-        dest_chat = int(dest_chat)
-    except ValueError:
-        pass # It's a username or string
-    
-    src_chat_id, _ = parse_link(source_link)
-    if not src_chat_id:
-        await message.reply_text("❌ Invalid source link.")
-        return
-        
-    src_chat_str = str(src_chat_id)
-    # Only add -100 if it's purely digits (which means it's a private chat ID missing the prefix)
-    if src_chat_str.isdigit() and not src_chat_str.startswith("-100"):
-        src_chat_str = f"-100{src_chat_str}"
-        
-    uid = str(message.from_user.id)
-    
-    if uid in CLONE_JOBS and CLONE_JOBS[uid].get("active"):
-        await message.reply_text("⚠️ You already have an active clone job running! Use `/cancelclone` to stop it first.")
-        return
-    
-    # Check if testing destination channel works
-    try:
-        test_msg = await app.send_message(dest_chat, "🔄 Cloner Bot Access Test")
-        await test_msg.delete()
-    except Exception as e:
-        await message.reply_text(f"❌ Cannot access destination `{dest_chat}`.\nMake sure I am added as an Admin there!\n\n*(Note: If it's a private group/channel, you must use its ID starting with -100)*\n\nError: `{e}`")
-        return
-        
-    # Start clone job
-    CLONE_JOBS[uid] = {
-        "source_chat": src_chat_str,
-        "dest_chat": dest_chat,
-        "last_msg": 0,
-        "active": True,
-        "total_cloned": 0
-    }
-    
-    await save_db_state("clone_update", {"user_id": uid, **CLONE_JOBS[uid]})
-    
-    status_msg = await message.reply_text(f"🔄 **Clone Job Started!**\n\nCloning from `{src_chat_str}` to `{dest_chat}`.\nI will process messages methodically from oldest to newest to avoid rate limits. Send `/cancelclone` to stop.")
-    
-    asyncio.create_task(run_cloner_loop(uid, status_msg))
-
-@app.on_message(filters.command("cancelclone") & filters.private)
-async def cancelclone_handler(client: Client, message: Message):
-    uid = str(message.from_user.id)
-    if uid in CLONE_JOBS and CLONE_JOBS[uid].get("active"):
-        CLONE_JOBS[uid]["active"] = False
-        await save_db_state("clone_update", {"user_id": uid, **CLONE_JOBS[uid]})
-        await message.reply_text("🛑 Stopping your active clone job... It will halt on the next chunk.")
-    else:
-        await message.reply_text("You don't have any active clone jobs.")
 
 @user_app.on_message(~filters.private)
 async def watcher_listener(client: Client, message: Message):
@@ -903,9 +675,6 @@ async def main():
     print("Bot Client Started!")
     
     print("\nBot is running!")
-    
-    # Load persistence from Log Channel before idling
-    await load_db_state()
     
     await idle()
 
