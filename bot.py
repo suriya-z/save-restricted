@@ -635,7 +635,11 @@ async def login_conversation(client: Client, message: Message):
             await message.reply_text(f"❌ Failed to send OTP: `{e}`")
 
     elif state == "otp":
-        otp = message.text.strip() if message.text else ""
+        # Strip everything except digits — handles "1 2345", "1-2345" display formats
+        otp = "".join(filter(str.isdigit, message.text or ""))
+        if not otp:
+            await message.reply_text("❌ Please send only the digits from your OTP (e.g. `12345`).")
+            return
         temp_data = TEMP_CLIENTS.get(uid)
         if not temp_data:
             LOGIN_STATE.pop(uid, None)
@@ -669,6 +673,23 @@ async def login_conversation(client: Client, message: Message):
                 )
                 LOGIN_STATE[uid] = "2fa"
                 TEMP_CLIENTS[uid]["session_string_temp"] = None  # mark we need 2FA
+            elif "PHONE_CODE_EXPIRED" in err or "code has expired" in err.lower():
+                # OTP expired — auto-request a fresh code without making user restart
+                try:
+                    new_sent = await temp_client.send_code(phone)
+                    TEMP_CLIENTS[uid]["phone_code_hash"] = new_sent.phone_code_hash
+                    await message.reply_text(
+                        "⏱️ **That code expired!** A **fresh code** has been sent to your Telegram.\n\n"
+                        "Please enter the new code quickly (Telegram codes expire in ~2 minutes):"
+                    )
+                except Exception as resend_err:
+                    LOGIN_STATE.pop(uid, None)
+                    TEMP_CLIENTS.pop(uid, None)
+                    try:
+                        await temp_client.disconnect()
+                    except:
+                        pass
+                    await message.reply_text(f"❌ Could not resend code: `{resend_err}`\n\nPlease start again with /login")
             else:
                 LOGIN_STATE.pop(uid, None)
                 TEMP_CLIENTS.pop(uid, None)
