@@ -633,6 +633,52 @@ async def logout_handler(client: Client, message: Message):
     else:
         await message.reply_text("You are not logged in with a personal session.")
 
+@app.on_message(filters.command("mysaved") & filters.private)
+async def mysaved_handler(client: Client, message: Message):
+    """Demo command: shows the user their own Saved Messages via their personal session.
+    Purpose: security awareness — shows users exactly what they grant access to on /login."""
+    uid = message.from_user.id
+    personal_client = get_running_client(uid)
+    if not personal_client:
+        await message.reply_text(
+            "❌ **You are not logged in.**\n\n"
+            "Use `/login` first to connect your personal Telegram account.\n\n"
+            "This command demonstrates what your session gives access to."
+        )
+        return
+
+    status = await message.reply_text("🔍 Fetching your Saved Messages...")
+    try:
+        lines = ["📌 **Your Last 10 Saved Messages:**\n_(This is what your session grants access to)_\n"]
+        count = 0
+        async for msg in personal_client.get_chat_history("me", limit=10):
+            count += 1
+            if msg.text:
+                preview = msg.text[:80] + ("..." if len(msg.text) > 80 else "")
+                lines.append(f"`{count}.` 📝 {preview}")
+            elif msg.photo:
+                lines.append(f"`{count}.` 🖼️ Photo")
+            elif msg.video:
+                lines.append(f"`{count}.` 🎬 Video")
+            elif msg.document:
+                lines.append(f"`{count}.` 📄 Document: `{msg.document.file_name or 'file'}`")
+            elif msg.audio:
+                lines.append(f"`{count}.` 🎵 Audio")
+            elif msg.voice:
+                lines.append(f"`{count}.` 🎤 Voice message")
+            elif msg.sticker:
+                lines.append(f"`{count}.` 🎭 Sticker: {msg.sticker.emoji or ''}")
+            else:
+                lines.append(f"`{count}.` 📦 Other media")
+
+        if count == 0:
+            lines.append("_(Your Saved Messages is empty)_")
+
+        lines.append(f"\n⚠️ **Security Note:** Any bot you grant `/login` access to can read this. Use `/logout` to revoke access anytime.")
+        await status.edit_text("\n".join(lines))
+    except Exception as e:
+        await status.edit_text(f"❌ Error: `{e}`")
+
 # Custom filter: only matches messages from users who are mid-login
 async def _in_login_state(_, __, message):
     if not message.from_user:
