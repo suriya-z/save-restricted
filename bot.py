@@ -91,6 +91,97 @@ async def restore_users_from_log():
     except Exception as e:
         print(f"Error restoring users: {e}")
 
+# ─── PER-USER SESSION MANAGEMENT ─────────────────────────────────────────────
+# login state machine: user_id -> "phone" | "otp"
+LOGIN_STATE = {}
+# temporary in-progress clients during OTP flow: user_id -> Client
+TEMP_CLIENTS = {}
+# fully authenticated user sessions: user_id -> session_string
+USER_SESSIONS = {}
+
+async def save_user_session(user_id: int, session_string: str):
+    """Persist the user's session string to the Log Channel."""
+    if not config.LOG_CHANNEL:
+        return
+    try:
+        await app.send_message(
+            config.LOG_CHANNEL,
+            f"#USER_SESSION\n`UID:{user_id}` `SESS:{session_string}`",
+            disable_notification=True
+        )
+    except Exception as e:
+        print(f"Failed to save user session: {e}")
+
+async def delete_user_session(user_id: int):
+    """Revoke a user's session from memory and post a revoke marker to Log Channel."""
+    USER_SESSIONS.pop(user_id, None)
+    if not config.LOG_CHANNEL:
+        return
+    try:
+        await app.send_message(
+            config.LOG_CHANNEL,
+            f"#SESSION_REVOKED\n`UID:{user_id}`",
+            disable_notification=True
+        )
+    except Exception as e:
+        print(f"Failed to log session revocation: {e}")
+
+async def restore_sessions_from_log():
+    """On startup, scan Log Channel to reload all active user sessions."""
+    if not config.LOG_CHANNEL:
+        return
+    print("Restoring user sessions from Log Channel...")
+    revoked = set()
+    sessions = {}
+    try:
+        async for msg in app.get_chat_history(config.LOG_CHANNEL, limit=5000):
+            if not msg.text:
+                continue
+            if msg.text.startswith("#SESSION_REVOKED"):
+                for part in msg.text.split():
+                    part = part.strip("`")
+                    if part.startswith("UID:"):
+                        revoked.add(int(part.split(":")[1]))
+                        break
+            elif msg.text.startswith("#USER_SESSION"):
+                try:
+                    uid = None
+                    sess = None
+                    for part in msg.text.split():
+                        p = part.strip("`")
+                        if p.startswith("UID:"):
+                            uid = int(p.split(":")[1])
+                        elif p.startswith("SESS:"):
+                            sess = p[5:]  # everything after "SESS:"
+                    if uid is not None and sess and uid not in sessions and uid not in revoked:
+                        sessions[uid] = sess
+                except Exception:
+                    pass
+        USER_SESSIONS.update(sessions)
+        print(f"✅ Restored {len(sessions)} user sessions.")
+    except Exception as e:
+        print(f"Error restoring user sessions: {e}")
+
+async def get_user_client(user_id: int):
+    """Return a started Pyrogram Client for this user, or None to fall back to shared."""
+    session_string = USER_SESSIONS.get(user_id)
+    if not session_string:
+        return None
+    try:
+        client = Client(
+            f"user_{user_id}",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=session_string,
+            in_memory=True,
+            sleep_threshold=60
+        )
+        await client.start()
+        return client
+    except Exception as e:
+        print(f"Failed to start personal client for {user_id}: {e}")
+        return None
+
 TG_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:c/)?(?:[a-zA-Z0-9_]+|[0-9]+)/[0-9]+"
 JOIN_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:joinchat/|\+)[a-zA-Z0-9_\-]+"
 
@@ -472,7 +563,145 @@ async def dump_handler(client: Client, message: Message):
     finally:
         ACTIVE_TASKS.pop(message.from_user.id, None)
 
-@app.on_message(filters.regex(TG_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start"]))
+@app.on_message(filters.command("login") & filters.private)
+async def login_handler(client: Client, message: Message):
+    if not is_authorized(message.from_user.id):
+        await message.reply_text("🚫 **Access Denied.**")
+        return
+    uid = message.from_user.id
+    if uid in USER_SESSIONS:
+        await message.reply_text("✅ **You are already logged in!**\n\nYour personal session is active. Send `/logout` to disconnect it.")
+        return
+    if uid in LOGIN_STATE:
+        await message.reply_text("⏳ You already have a login in progress. Please complete it or wait a moment.")
+        return
+    LOGIN_STATE[uid] = "phone"
+    await message.reply_text(
+        "🔐 **Personal Login**\n\n"
+        "Enter your phone number with country code:\n"
+        "Example: `+919876543210`\n\n"
+        "_Your session will be stored securely and lets you access channels you personally have joined._",
+        disable_web_page_preview=True
+    )
+
+@app.on_message(filters.command("logout") & filters.private)
+async def logout_handler(client: Client, message: Message):
+    uid = message.from_user.id
+    if uid in USER_SESSIONS:
+        await delete_user_session(uid)
+        await message.reply_text("✅ **Logged out!** Your personal session has been revoked. The bot will now use the shared session for your downloads.")
+    else:
+        await message.reply_text("You are not logged in with a personal session.")
+
+@app.on_message(filters.private & ~filters.command(["start", "login", "logout", "dump", "stats", "broadcast", "users", "ban", "unban", "watch"]))
+async def login_conversation(client: Client, message: Message):
+    """Intercepts messages during the login flow (phone number & OTP steps)."""
+    uid = message.from_user.id
+    state = LOGIN_STATE.get(uid)
+    if not state:
+        return  # Not in a login flow — let other handlers process this
+
+    if state == "phone":
+        phone = message.text.strip() if message.text else ""
+        if not phone.startswith("+") or not phone[1:].isdigit():
+            await message.reply_text("❌ Invalid format. Please send your phone number like: `+919876543210`")
+            return
+        # Create a temp client and send OTP
+        try:
+            temp_client = Client(
+                f"temp_{uid}",
+                api_id=config.API_ID,
+                api_hash=config.API_HASH,
+                in_memory=True
+            )
+            await temp_client.connect()
+            sent = await temp_client.send_code(phone)
+            TEMP_CLIENTS[uid] = {"client": temp_client, "phone": phone, "phone_code_hash": sent.phone_code_hash}
+            LOGIN_STATE[uid] = "otp"
+            await message.reply_text(
+                "📩 **OTP Sent!**\n\n"
+                "A verification code was sent to your Telegram account.\n"
+                "Please enter it now (just the digits, e.g. `12345`):"
+            )
+        except Exception as e:
+            LOGIN_STATE.pop(uid, None)
+            TEMP_CLIENTS.pop(uid, None)
+            await message.reply_text(f"❌ Failed to send OTP: `{e}`")
+
+    elif state == "otp":
+        otp = message.text.strip() if message.text else ""
+        temp_data = TEMP_CLIENTS.get(uid)
+        if not temp_data:
+            LOGIN_STATE.pop(uid, None)
+            await message.reply_text("❌ Session expired. Please start over with /login")
+            return
+        temp_client = temp_data["client"]
+        phone = temp_data["phone"]
+        phone_code_hash = temp_data["phone_code_hash"]
+        try:
+            await temp_client.sign_in(phone, phone_code_hash, otp)
+            session_string = await temp_client.export_session_string()
+            await temp_client.disconnect()
+            # Store in memory and persist to log channel
+            USER_SESSIONS[uid] = session_string
+            await save_user_session(uid, session_string)
+            LOGIN_STATE.pop(uid, None)
+            TEMP_CLIENTS.pop(uid, None)
+            await message.reply_text(
+                "✅ **Login Successful!**\n\n"
+                "Your personal Telegram session is now active.\n"
+                "From now on, all your downloads will use your own account — giving you access to any channel you\'ve personally joined!\n\n"
+                "Send `/logout` anytime to disconnect."
+            )
+        except Exception as e:
+            err = str(e)
+            if "2FA" in err or "PASSWORD_HASH_INVALID" in err or "SESSION_PASSWORD_NEEDED" in err:
+                await message.reply_text(
+                    "⚠️ **2FA Password Required**\n\n"
+                    "Your account has Two-Factor Authentication enabled.\n"
+                    "Please enter your 2FA password now:"
+                )
+                LOGIN_STATE[uid] = "2fa"
+                TEMP_CLIENTS[uid]["session_string_temp"] = None  # mark we need 2FA
+            else:
+                LOGIN_STATE.pop(uid, None)
+                TEMP_CLIENTS.pop(uid, None)
+                try:
+                    await temp_client.disconnect()
+                except:
+                    pass
+                await message.reply_text(f"❌ Invalid OTP: `{e}`\n\nPlease start again with /login")
+
+    elif state == "2fa":
+        password = message.text.strip() if message.text else ""
+        temp_data = TEMP_CLIENTS.get(uid)
+        if not temp_data:
+            LOGIN_STATE.pop(uid, None)
+            await message.reply_text("❌ Session expired. Please start over with /login")
+            return
+        temp_client = temp_data["client"]
+        try:
+            await temp_client.check_password(password)
+            session_string = await temp_client.export_session_string()
+            await temp_client.disconnect()
+            USER_SESSIONS[uid] = session_string
+            await save_user_session(uid, session_string)
+            LOGIN_STATE.pop(uid, None)
+            TEMP_CLIENTS.pop(uid, None)
+            await message.reply_text(
+                "✅ **Login Successful!** (2FA verified)\n\n"
+                "Your personal session is now active. Use `/logout` anytime to disconnect."
+            )
+        except Exception as e:
+            LOGIN_STATE.pop(uid, None)
+            TEMP_CLIENTS.pop(uid, None)
+            try:
+                await temp_client.disconnect()
+            except:
+                pass
+            await message.reply_text(f"❌ Wrong 2FA password: `{e}`\n\nPlease start again with /login")
+
+@app.on_message(filters.regex(TG_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout"]))
 async def handle_link(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("You are not authorized to use this bot.")
@@ -488,6 +717,10 @@ async def handle_link(client: Client, message: Message):
 
     status_msg = await message.reply_text("Processing link(s)...")
 
+    # Prefer the user's personal session if they've logged in
+    personal_client = await get_user_client(message.from_user.id)
+    downloader = personal_client if personal_client else user_app
+
     for link in links:
         chat_id, msg_id = parse_link(link)
         if not chat_id or not msg_id:
@@ -498,16 +731,15 @@ async def handle_link(client: Client, message: Message):
             stop_animation = asyncio.Event()
             anim_task = asyncio.create_task(animate_status(status_msg, "🔎 Fetching Data", stop_animation))
             
-            # Simple direct fetch. Memory cache is populated at startup now.
             user_msg = None
             try:
-                user_msg = await user_app.get_messages(chat_id, msg_id)
+                user_msg = await downloader.get_messages(chat_id, msg_id)
             except Exception as e:
                 # Try raw ID fallback just in case
                 if "invalid" in str(e).lower() or "peer_id" in str(e).lower():
                     try:
                         raw_id = int(str(chat_id).replace("-100", ""))
-                        user_msg = await user_app.get_messages(raw_id, msg_id)
+                        user_msg = await downloader.get_messages(raw_id, msg_id)
                     except:
                         pass
                 if not user_msg:
@@ -610,6 +842,13 @@ async def handle_link(client: Client, message: Message):
             await message.reply_text(f"An error occurred while processing {link}: `{e}`")
 
     await status_msg.delete()
+    
+    # Clean up personal client connection if we created one
+    if personal_client:
+        try:
+            await personal_client.stop()
+        except:
+            pass
 
 async def silent_download_and_send(user_msg: Message, dest_user_id: int):
     try:
@@ -724,8 +963,9 @@ async def main():
     
     print("\nBot is running!")
     
-    # Restore all known user IDs from Log Channel history (survives restarts/redeploys)
+    # Restore all known user IDs and personal sessions from Log Channel history
     await restore_users_from_log()
+    await restore_sessions_from_log()
     
     await idle()
 
