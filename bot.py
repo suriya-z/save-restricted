@@ -104,6 +104,55 @@ LOGIN_STATE = {}
 TEMP_CLIENTS = {}
 # fully authenticated user sessions: user_id -> session_string
 USER_SESSIONS = {}
+# Persistently running personal clients: user_id -> Client (alive between requests)
+RUNNING_USER_CLIENTS = {}
+
+async def start_user_client(user_id: int, session_string: str) -> bool:
+    """Start and cache a personal Pyrogram client. Pre-caches dialogs to build entity map.
+    Returns True on success."""
+    if user_id in RUNNING_USER_CLIENTS:
+        return True  # Already running
+    try:
+        client = Client(
+            f"user_{user_id}",
+            api_id=config.API_ID,
+            api_hash=config.API_HASH,
+            session_string=session_string,
+            in_memory=True,
+            sleep_threshold=60,
+            max_concurrent_transmissions=10
+        )
+        await client.start()
+        RUNNING_USER_CLIENTS[user_id] = client
+        # Pre-warm entity cache in background so it doesn't block the first request
+        asyncio.create_task(_warm_entity_cache(client, user_id))
+        return True
+    except Exception as e:
+        print(f"Failed to start personal client for {user_id}: {e}")
+        return False
+
+async def _warm_entity_cache(client: Client, user_id: int):
+    """Background task: fetch dialogs to build the entity/peer cache."""
+    try:
+        count = 0
+        async for _ in client.get_dialogs():
+            count += 1
+        print(f"✅ Entity cache warmed for user {user_id}: {count} dialogs")
+    except Exception as e:
+        print(f"Entity cache warm failed for {user_id}: {e}")
+
+async def stop_user_client(user_id: int):
+    """Stop and remove a user's personal client."""
+    client = RUNNING_USER_CLIENTS.pop(user_id, None)
+    if client:
+        try:
+            await client.stop()
+        except Exception:
+            pass
+
+def get_running_client(user_id: int):
+    """Return the already-running personal client for this user, or None."""
+    return RUNNING_USER_CLIENTS.get(user_id)
 
 async def save_user_session(user_id: int, session_string: str):
     """Persist the user's session string to the Log Channel."""
@@ -119,8 +168,9 @@ async def save_user_session(user_id: int, session_string: str):
         print(f"Failed to save user session: {e}")
 
 async def delete_user_session(user_id: int):
-    """Revoke a user's session from memory and post a revoke marker to Log Channel."""
+    """Revoke a user's session: stop running client, clear memory, post revoke marker."""
     USER_SESSIONS.pop(user_id, None)
+    await stop_user_client(user_id)
     if not config.LOG_CHANNEL:
         return
     try:
@@ -133,7 +183,7 @@ async def delete_user_session(user_id: int):
         print(f"Failed to log session revocation: {e}")
 
 async def restore_sessions_from_log():
-    """On startup, scan Log Channel to reload all active user sessions."""
+    """On startup, scan Log Channel to reload all active user sessions and start their clients."""
     if not config.LOG_CHANNEL:
         return
     print("Restoring user sessions from Log Channel...")
@@ -158,35 +208,19 @@ async def restore_sessions_from_log():
                         if p.startswith("UID:"):
                             uid = int(p.split(":")[1])
                         elif p.startswith("SESS:"):
-                            sess = p[5:]  # everything after "SESS:"
+                            sess = p[5:]
                     if uid is not None and sess and uid not in sessions and uid not in revoked:
                         sessions[uid] = sess
                 except Exception:
                     pass
         USER_SESSIONS.update(sessions)
-        print(f"✅ Restored {len(sessions)} user sessions.")
+        # Start persistent clients for all restored sessions
+        for uid, sess in sessions.items():
+            await start_user_client(uid, sess)
+        print(f"✅ Restored and started {len(sessions)} user sessions.")
     except Exception as e:
         print(f"Error restoring user sessions: {e}")
 
-async def get_user_client(user_id: int):
-    """Return a started Pyrogram Client for this user, or None to fall back to shared."""
-    session_string = USER_SESSIONS.get(user_id)
-    if not session_string:
-        return None
-    try:
-        client = Client(
-            f"user_{user_id}",
-            api_id=config.API_ID,
-            api_hash=config.API_HASH,
-            session_string=session_string,
-            in_memory=True,
-            sleep_threshold=60
-        )
-        await client.start()
-        return client
-    except Exception as e:
-        print(f"Failed to start personal client for {user_id}: {e}")
-        return None
 
 TG_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:c/)?(?:[a-zA-Z0-9_]+|[0-9]+)/[0-9]+"
 JOIN_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:joinchat/|\+)[a-zA-Z0-9_\-]+"
@@ -664,6 +698,8 @@ async def login_conversation(client: Client, message: Message):
             # Store in memory and persist to log channel
             USER_SESSIONS[uid] = session_string
             await save_user_session(uid, session_string)
+            # Start the persistent client — it'll warm entity cache in background
+            await start_user_client(uid, session_string)
             LOGIN_STATE.pop(uid, None)
             TEMP_CLIENTS.pop(uid, None)
             await message.reply_text(
@@ -722,6 +758,7 @@ async def login_conversation(client: Client, message: Message):
             await temp_client.disconnect()
             USER_SESSIONS[uid] = session_string
             await save_user_session(uid, session_string)
+            await start_user_client(uid, session_string)
             LOGIN_STATE.pop(uid, None)
             TEMP_CLIENTS.pop(uid, None)
             await message.reply_text(
@@ -783,8 +820,8 @@ async def process_download_job(job: dict):
     user_id = job["user_id"]
     status_msg = job["status_msg"]
 
-    personal_client = await get_user_client(user_id)
-    downloader = personal_client if personal_client else user_app
+    # Use the persistently running personal client (has full entity cache)
+    downloader = get_running_client(user_id) or user_app
 
     for link in links:
         chat_id, msg_id = parse_link(link)
@@ -816,11 +853,7 @@ async def process_download_job(job: dict):
                     except Exception:
                         pass
                     # If personal client still failed, fall back to shared user_app
-                    if not user_msg and personal_client:
-                        try:
-                            await user_app.get_chat(chat_id)
-                        except Exception:
-                            pass
+                    if not user_msg and downloader is not user_app:
                         try:
                             user_msg = await user_app.get_messages(chat_id, msg_id)
                         except Exception:
@@ -917,12 +950,6 @@ async def process_download_job(job: dict):
             await message.reply_text(f"An error occurred while processing {link}: `{e}`")
 
     await status_msg.delete()
-
-    if personal_client:
-        try:
-            await personal_client.stop()
-        except:
-            pass
 
 async def queue_worker():
     """Background worker that processes download jobs one at a time."""
