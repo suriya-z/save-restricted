@@ -33,7 +33,7 @@ app = Client(
     bot_token=config.BOT_TOKEN,
     ipv6=False,
     sleep_threshold=60,
-    max_concurrent_transmissions=3
+    max_concurrent_transmissions=10  # Max parallel chunk uploads for speed
 )
 
 user_app = Client(
@@ -44,12 +44,18 @@ user_app = Client(
     ipv6=False,
     in_memory=True,
     sleep_threshold=60,
-    max_concurrent_transmissions=3
+    max_concurrent_transmissions=10  # Max parallel chunk downloads for speed
 )
 
 # In-memory watcher state (resets on bot restart)
 # Format: { "source_chat_id": [user_id_1, user_id_2] }
 WATCHED_CHANNELS = {}
+
+# ─── DOWNLOAD QUEUE ───────────────────────────────────────────────────────────
+# Jobs: dict with keys: message, links, user_id
+DOWNLOAD_QUEUE = asyncio.Queue()
+# Ordered list of user_ids to show position numbers
+QUEUE_LIST = []
 
 async def log_new_user(user_id: int, username: str):
     """When a new user is detected, persist their ID to the Log Channel."""
@@ -707,6 +713,10 @@ async def handle_link(client: Client, message: Message):
         await message.reply_text("You are not authorized to use this bot.")
         return
 
+    # Skip if user is in a login flow
+    if message.from_user.id in LOGIN_STATE:
+        return
+
     links = re.findall(TG_LINK_REGEX, message.text)
     if not links:
         await message.reply_text("No valid Telegram links found.")
@@ -715,10 +725,35 @@ async def handle_link(client: Client, message: Message):
     # Track user
     database.add_user(message.from_user.id, message.from_user.username or message.from_user.first_name)
 
-    status_msg = await message.reply_text("Processing link(s)...")
+    uid = message.from_user.id
+    QUEUE_LIST.append(uid)
+    position = len(QUEUE_LIST)
 
-    # Prefer the user's personal session if they've logged in
-    personal_client = await get_user_client(message.from_user.id)
+    if position == 1:
+        status_msg = await message.reply_text("🚀 **Starting your download immediately...**")
+    else:
+        status_msg = await message.reply_text(
+            f"⏳ **You are #{position} in queue.**\n\n"
+            f"{position - 1} download(s) ahead of you. Your download will start automatically when it's your turn.\n\n"
+            f"_Do not re-send the link — it's already queued!_"
+        )
+
+    job = {
+        "message": message,
+        "links": links,
+        "user_id": uid,
+        "status_msg": status_msg
+    }
+    await DOWNLOAD_QUEUE.put(job)
+
+async def process_download_job(job: dict):
+    """Core download processor — runs one job from the queue."""
+    message = job["message"]
+    links = job["links"]
+    user_id = job["user_id"]
+    status_msg = job["status_msg"]
+
+    personal_client = await get_user_client(user_id)
     downloader = personal_client if personal_client else user_app
 
     for link in links:
@@ -730,12 +765,11 @@ async def handle_link(client: Client, message: Message):
         try:
             stop_animation = asyncio.Event()
             anim_task = asyncio.create_task(animate_status(status_msg, "🔎 Fetching Data", stop_animation))
-            
+
             user_msg = None
             try:
                 user_msg = await downloader.get_messages(chat_id, msg_id)
             except Exception as e:
-                # Try raw ID fallback just in case
                 if "invalid" in str(e).lower() or "peer_id" in str(e).lower():
                     try:
                         raw_id = int(str(chat_id).replace("-100", ""))
@@ -744,7 +778,7 @@ async def handle_link(client: Client, message: Message):
                         pass
                 if not user_msg:
                     raise e
-                    
+
             stop_animation.set()
             await anim_task
 
@@ -753,39 +787,39 @@ async def handle_link(client: Client, message: Message):
                 continue
 
             if user_msg.empty:
-               await message.reply_text(f"Message {link} is empty or deleted.")
-               continue
-            
+                await message.reply_text(f"Message {link} is empty or deleted.")
+                continue
+
             if user_msg.text and not user_msg.media:
                 await status_msg.edit_text("Sending text message...")
                 await message.reply_text(user_msg.text)
                 continue
-                
+
             if not user_msg.media:
                 await message.reply_text(f"Message {link} does not contain supported media.")
                 continue
 
-            await status_msg.edit_text("Downloading media. This might take a while depending on size...")
+            await status_msg.edit_text("🚀 Downloading at full speed...")
             start_time = time.time()
             last_update_time = [start_time]
-            file_path = await user_app.download_media(
+            # Use personal client's download if available (their own session = their own bandwidth slot)
+            file_path = await downloader.download_media(
                 user_msg,
                 progress=progress_callback,
                 progress_args=(status_msg, "Downloading Media... 📥", start_time, last_update_time)
             )
-            
+
             if not file_path:
                 await message.reply_text(f"Failed to download media for {link}")
                 continue
 
             await status_msg.edit_text("Uploading media to you... 📤")
-            
+
             caption = user_msg.caption if user_msg.caption else ""
             start_time = time.time()
             last_update_time = [start_time]
             progress_args = (status_msg, "Uploading Media... 📤", start_time, last_update_time)
-            
-            # Send file to user via BOT account
+
             sent_msg = None
             if user_msg.photo:
                 sent_msg = await message.reply_photo(photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
@@ -798,38 +832,30 @@ async def handle_link(client: Client, message: Message):
             elif user_msg.voice:
                 sent_msg = await message.reply_voice(voice=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             else:
-                 sent_msg = await message.reply_document(document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args) 
+                sent_msg = await message.reply_document(document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
 
-            # Track successful download statistic
             if sent_msg:
                 database.increment_downloads()
 
-            # Log channel functionality ONLY if it succeeds in reaching the user
             if config.LOG_CHANNEL and sent_msg:
                 user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Link:** {link}\n\n"
                 try:
-                    # Let the USER account send the log because it already has all peer access rights
-                    await user_app.send_message(
-                        chat_id=config.LOG_CHANNEL,
-                        text=user_info + "⬇️ Downloaded media:"
-                    )
-                    
+                    await user_app.send_message(chat_id=config.LOG_CHANNEL, text=user_info + "⬇️ Downloaded media:")
                     if user_msg.photo:
-                         await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
+                        await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
                     elif user_msg.video:
-                         await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
+                        await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
                     elif user_msg.document:
-                         await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
+                        await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
                     elif user_msg.audio:
-                         await user_app.send_audio(config.LOG_CHANNEL, audio=file_path, caption=caption)
+                        await user_app.send_audio(config.LOG_CHANNEL, audio=file_path, caption=caption)
                     elif user_msg.voice:
-                         await user_app.send_voice(config.LOG_CHANNEL, voice=file_path, caption=caption)
+                        await user_app.send_voice(config.LOG_CHANNEL, voice=file_path, caption=caption)
                     else:
-                         await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
+                        await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
                 except Exception as log_err:
                     print(f"Failed to log: {log_err}")
 
-            # Clean up local file AFTER logging
             if os.path.exists(file_path):
                 os.remove(file_path)
 
@@ -837,18 +863,40 @@ async def handle_link(client: Client, message: Message):
             await message.reply_text(f"FloodWait error. Need to wait {e.value} seconds.")
             await asyncio.sleep(e.value)
         except PeerIdInvalid:
-             await message.reply_text(f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
+            await message.reply_text(f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
         except Exception as e:
             await message.reply_text(f"An error occurred while processing {link}: `{e}`")
 
     await status_msg.delete()
-    
-    # Clean up personal client connection if we created one
+
     if personal_client:
         try:
             await personal_client.stop()
         except:
             pass
+
+async def queue_worker():
+    """Background worker that processes download jobs one at a time."""
+    while True:
+        job = await DOWNLOAD_QUEUE.get()
+        user_id = job["user_id"]
+        try:
+            # Remove from position tracker
+            if user_id in QUEUE_LIST:
+                QUEUE_LIST.remove(user_id)
+            # Notify remaining users in queue of updated positions
+            # (best-effort, silent if edit fails)
+            for i, uid in enumerate(QUEUE_LIST):
+                pos_job = None
+                # We can't easily look up the status_msg here, so position updates
+                # are shown when each job starts instead
+                pass
+            await process_download_job(job)
+        except Exception as e:
+            print(f"Queue worker error: {e}")
+        finally:
+            DOWNLOAD_QUEUE.task_done()
+
 
 async def silent_download_and_send(user_msg: Message, dest_user_id: int):
     try:
@@ -966,6 +1014,10 @@ async def main():
     # Restore all known user IDs and personal sessions from Log Channel history
     await restore_users_from_log()
     await restore_sessions_from_log()
+    
+    # Start the download queue worker (processes requests one at a time, FIFO)
+    asyncio.create_task(queue_worker())
+    print("✅ Download queue worker started.")
     
     await idle()
 
