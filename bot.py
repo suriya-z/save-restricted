@@ -51,6 +51,46 @@ user_app = Client(
 # Format: { "source_chat_id": [user_id_1, user_id_2] }
 WATCHED_CHANNELS = {}
 
+async def log_new_user(user_id: int, username: str):
+    """When a new user is detected, persist their ID to the Log Channel."""
+    if not config.LOG_CHANNEL:
+        return
+    try:
+        await app.send_message(
+            config.LOG_CHANNEL,
+            f"#NEW_USER\n`USER_ID:{user_id}` | `@{username}`",
+            disable_notification=True
+        )
+    except Exception as e:
+        print(f"Failed to log new user: {e}")
+
+async def restore_users_from_log():
+    """On startup, scan the last 5000 Log Channel messages to restore all known user IDs."""
+    if not config.LOG_CHANNEL:
+        return
+    print("Restoring user IDs from Log Channel...")
+    restored = 0
+    try:
+        async for msg in app.get_chat_history(config.LOG_CHANNEL, limit=5000):
+            if msg.text and msg.text.startswith("#NEW_USER"):
+                try:
+                    # Parse "USER_ID:12345"
+                    for part in msg.text.split():
+                        part = part.strip("`")
+                        if part.startswith("USER_ID:"):
+                            uid = int(part.split(":")[1])
+                            # Only add if not already in local DB (avoids overwriting ban status)
+                            existing = database.get_all_users()
+                            if str(uid) not in existing:
+                                database.add_user(uid, "restored_user")
+                                restored += 1
+                            break
+                except Exception:
+                    pass
+        print(f"✅ Restored {restored} users from Log Channel history.")
+    except Exception as e:
+        print(f"Error restoring users: {e}")
+
 TG_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:c/)?(?:[a-zA-Z0-9_]+|[0-9]+)/[0-9]+"
 JOIN_LINK_REGEX = r"https?://(?:www\.)?t\.me/(?:joinchat/|\+)[a-zA-Z0-9_\-]+"
 
@@ -161,8 +201,16 @@ async def start_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
         return
-        
-    database.add_user(message.from_user.id, message.from_user.username or message.from_user.first_name)
+    
+    # Detect if brand-new user (not in local DB) and log to Log Channel for persistence
+    existing_users = database.get_all_users()
+    is_new_user = str(message.from_user.id) not in existing_users
+    
+    uname = message.from_user.username or message.from_user.first_name
+    database.add_user(message.from_user.id, uname)
+    
+    if is_new_user:
+        await log_new_user(message.from_user.id, uname)
     
     await message.reply_text(
         text=get_welcome_text(message.from_user.mention),
@@ -675,6 +723,9 @@ async def main():
     print("Bot Client Started!")
     
     print("\nBot is running!")
+    
+    # Restore all known user IDs from Log Channel history (survives restarts/redeploys)
+    await restore_users_from_log()
     
     await idle()
 
