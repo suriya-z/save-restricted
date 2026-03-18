@@ -599,13 +599,22 @@ async def logout_handler(client: Client, message: Message):
     else:
         await message.reply_text("You are not logged in with a personal session.")
 
-@app.on_message(filters.private & ~filters.command(["start", "login", "logout", "dump", "stats", "broadcast", "users", "ban", "unban", "watch"]))
+# Custom filter: only matches messages from users who are mid-login
+async def _in_login_state(_, __, message):
+    if not message.from_user:
+        return False
+    return message.from_user.id in LOGIN_STATE
+
+in_login_state_filter = filters.create(_in_login_state)
+
+@app.on_message(filters.private & in_login_state_filter)
 async def login_conversation(client: Client, message: Message):
-    """Intercepts messages during the login flow (phone number & OTP steps)."""
+    """Intercepts messages during the login flow (phone number & OTP steps).
+    Only fires when the user is actively in LOGIN_STATE — never intercepts normal messages."""
     uid = message.from_user.id
     state = LOGIN_STATE.get(uid)
     if not state:
-        return  # Not in a login flow — let other handlers process this
+        return
 
     if state == "phone":
         phone = message.text.strip() if message.text else ""
