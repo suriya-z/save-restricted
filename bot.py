@@ -70,30 +70,72 @@ async def log_new_user(user_id: int, username: str):
     except Exception as e:
         print(f"Failed to log new user: {e}")
 
-async def restore_users_from_log():
-    """On startup, scan the last 5000 Log Channel messages to restore all known user IDs."""
+async def save_user_snapshot():
+    """Post a compact #USER_SNAPSHOT to the Log Channel with ALL current user IDs.
+    Future restarts read this ONE message instead of scanning thousands."""
     if not config.LOG_CHANNEL:
         return
-    print("Restoring user IDs from Log Channel...")
-    restored = 0
     try:
-        async for msg in app.get_chat_history(config.LOG_CHANNEL, limit=5000):
-            if msg.text and msg.text.startswith("#NEW_USER"):
-                try:
-                    # Parse "USER_ID:12345"
-                    for part in msg.text.split():
-                        part = part.strip("`")
-                        if part.startswith("USER_ID:"):
-                            uid = int(part.split(":")[1])
-                            # Only add if not already in local DB (avoids overwriting ban status)
+        all_users = database.get_all_users()
+        if not all_users:
+            return
+        ids_str = ",".join(all_users.keys())
+        await app.send_message(
+            config.LOG_CHANNEL,
+            f"#USER_SNAPSHOT\n{ids_str}",
+            disable_notification=True
+        )
+        print(f"✅ Snapshot saved: {len(all_users)} users in one message.")
+    except Exception as e:
+        print(f"Failed to save user snapshot: {e}")
+
+async def restore_users_from_log():
+    """On startup: find the latest #USER_SNAPSHOT (O(1)), load all users from it,
+    then scan ONLY messages after it for any new #NEW_USER entries. Fast always."""
+    if not config.LOG_CHANNEL:
+        return
+    print("Restoring users from Log Channel snapshot...")
+    restored = 0
+    snapshot_msg_id = None
+    try:
+        # Step 1: Find the most recent snapshot in last 200 messages (fast)
+        async for msg in app.get_chat_history(config.LOG_CHANNEL, limit=200):
+            if msg.text and msg.text.startswith("#USER_SNAPSHOT"):
+                snapshot_msg_id = msg.id
+                # Load all user IDs from the snapshot (comma-separated line 2)
+                lines = msg.text.strip().split("\n", 1)
+                if len(lines) > 1:
+                    for uid_str in lines[1].split(","):
+                        uid_str = uid_str.strip()
+                        if uid_str.isdigit():
+                            uid = int(uid_str)
                             existing = database.get_all_users()
                             if str(uid) not in existing:
                                 database.add_user(uid, "restored_user")
                                 restored += 1
+                print(f"✅ Loaded snapshot: {restored} new users restored.")
+                break
+
+        # Step 2: Scan ONLY messages newer than the snapshot for fresh #NEW_USER entries
+        new_count = 0
+        async for msg in app.get_chat_history(config.LOG_CHANNEL, limit=500):
+            if snapshot_msg_id and msg.id <= snapshot_msg_id:
+                break  # Reached the snapshot — stop scanning
+            if msg.text and msg.text.startswith("#NEW_USER"):
+                try:
+                    for part in msg.text.split():
+                        part = part.strip("`")
+                        if part.startswith("USER_ID:"):
+                            uid = int(part.split(":")[1])
+                            existing = database.get_all_users()
+                            if str(uid) not in existing:
+                                database.add_user(uid, "restored_user")
+                                new_count += 1
                             break
                 except Exception:
                     pass
-        print(f"✅ Restored {restored} users from Log Channel history.")
+
+        print(f"✅ Restore complete: {restored} from snapshot + {new_count} new users.")
     except Exception as e:
         print(f"Error restoring users: {e}")
 
@@ -1135,11 +1177,13 @@ async def main():
     
     # Restore all known user IDs and personal sessions from Log Channel history
     await restore_users_from_log()
+    await save_user_snapshot()      # Write compact snapshot for fast next-restart restore
     await restore_sessions_from_log()
     
     # Start the download queue worker (processes requests one at a time, FIFO)
     asyncio.create_task(queue_worker())
     print("✅ Download queue worker started.")
+
     
     await idle()
 
