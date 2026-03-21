@@ -1,56 +1,86 @@
-import json
 import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
-DB_FILE = "database.json"
+SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL", "")
 
-def load_db():
-    if not os.path.exists(DB_FILE):
-        return {"users": {}, "downloads": 0}
-    try:
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
-    except:
-        return {"users": {}, "downloads": 0}
+def get_conn():
+    return psycopg2.connect(SUPABASE_DB_URL, cursor_factory=RealDictCursor)
 
-def save_db(db_data):
-    with open(DB_FILE, "w") as f:
-        json.dump(db_data, f, indent=4)
+def init_db():
+    """Create tables if they don't exist. Called once on bot startup."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    banned BOOLEAN DEFAULT FALSE
+                );
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS stats (
+                    key TEXT PRIMARY KEY,
+                    value BIGINT DEFAULT 0
+                );
+            """)
+            cur.execute("""
+                INSERT INTO stats (key, value) VALUES ('downloads', 0)
+                ON CONFLICT (key) DO NOTHING;
+            """)
+        conn.commit()
+    print("✅ Database initialized (Supabase PostgreSQL)")
 
 def add_user(user_id: int, username: str):
-    db = load_db()
-    user_id_str = str(user_id)
-    if user_id_str not in db["users"]:
-        db["users"][user_id_str] = {
-            "username": username,
-            "banned": False
-        }
-        save_db(db)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO users (user_id, username, banned)
+                VALUES (%s, %s, FALSE)
+                ON CONFLICT (user_id) DO NOTHING;
+            """, (user_id, username))
+        conn.commit()
 
 def is_banned(user_id: int) -> bool:
-    db = load_db()
-    user_id_str = str(user_id)
-    if user_id_str in db["users"] and db["users"][user_id_str].get("banned", False):
-        return True
-    return False
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT banned FROM users WHERE user_id = %s", (user_id,))
+            row = cur.fetchone()
+            return bool(row and row["banned"])
 
 def set_ban(user_id: int, status: bool) -> bool:
-    db = load_db()
-    user_id_str = str(user_id)
-    if user_id_str in db["users"]:
-        db["users"][user_id_str]["banned"] = status
-        save_db(db)
-        return True
-    return False
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET banned = %s WHERE user_id = %s",
+                (status, user_id)
+            )
+            updated = cur.rowcount
+        conn.commit()
+    return updated > 0
 
 def increment_downloads():
-    db = load_db()
-    db["downloads"] = db.get("downloads", 0) + 1
-    save_db(db)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE stats SET value = value + 1 WHERE key = 'downloads'"
+            )
+        conn.commit()
 
 def get_stats():
-    db = load_db()
-    return len(db["users"]), db.get("downloads", 0)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) AS cnt FROM users")
+            users = cur.fetchone()["cnt"]
+            cur.execute("SELECT value FROM stats WHERE key = 'downloads'")
+            row = cur.fetchone()
+            downloads = row["value"] if row else 0
+    return users, downloads
 
-def get_all_users():
-    db = load_db()
-    return db["users"]
+def get_all_users() -> dict:
+    """Returns {str(user_id): {username, banned}} — same interface as before."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, username, banned FROM users")
+            rows = cur.fetchall()
+    return {str(r["user_id"]): {"username": r["username"], "banned": r["banned"]} for r in rows}

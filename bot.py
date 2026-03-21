@@ -1175,9 +1175,10 @@ async def main():
     
     print("\nBot is running!")
     
-    # Restore all known user IDs and personal sessions from Log Channel history
-    await restore_users_from_log()
-    await save_user_snapshot()      # Write compact snapshot for fast next-restart restore
+    # Initialize Supabase DB tables (no-op if already exist)
+    database.init_db()
+
+    # Restore personal login sessions from Log Channel (sessions still stored there)
     await restore_sessions_from_log()
     
     # Start the download queue worker (processes requests one at a time, FIFO)
