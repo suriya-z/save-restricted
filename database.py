@@ -20,14 +20,7 @@ def init_db():
                 );
             """)
             # Ensure session_string column exists if upgrading from an older schema
-            try:
-                cur.execute("ALTER TABLE users ADD COLUMN session_string TEXT;")
-            except psycopg2.errors.DuplicateColumn:
-                pass
-            except Exception as e:
-                # Rollback if transaction aborted
-                conn.rollback()
-
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_string TEXT;")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS stats (
                     key TEXT PRIMARY KEY,
