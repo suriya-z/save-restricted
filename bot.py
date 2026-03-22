@@ -249,6 +249,18 @@ def parse_link(link: str):
         print(f"Error parsing link {link}: {e}")
     return None, None
 
+def is_protected_channel(chat_id) -> bool:
+    """Check if the requested chat_id matches the bot's own Log Channels."""
+    if not chat_id:
+        return False
+    raw_id = str(chat_id).replace("-100", "")
+    protected = []
+    if config.LOG_CHANNEL:
+        protected.append(str(config.LOG_CHANNEL).replace("-100", ""))
+    if config.LINK_LOG_CHANNEL:
+        protected.append(str(config.LINK_LOG_CHANNEL).replace("-100", ""))
+    return raw_id in protected
+
 def humanbytes(size):
     if not size: return ""
     power = 2**10
@@ -507,6 +519,10 @@ async def handle_album(client: Client, message: Message):
         await message.reply_text("Could not parse link.")
         return
 
+    if is_protected_channel(chat_id):
+        await message.reply_text("😎 **Hahaha you can't mess with the creator!**\n\nThis group is highly protected so you can't download anything from here.")
+        return
+
     user_id = message.from_user.id
     status_msg = await message.reply_text("⏳ Queuing Album Job... (1/1)")
 
@@ -544,6 +560,10 @@ async def dump_handler(client: Client, message: Message):
     chat_id, start_msg_id = parse_link(link)
     if not chat_id or not start_msg_id:
         await message.reply_text(f"Could not parse valid link: {link}")
+        return
+
+    if is_protected_channel(chat_id):
+        await message.reply_text("😎 **Hahaha you can't mess with the creator!**\n\nThis group is highly protected so you can't download anything from here.")
         return
 
     status_msg = await message.reply_text(f"🔎 Initiating Bulk Download for **{amount}** messages starting around ID `{start_msg_id}`...")
@@ -868,6 +888,16 @@ async def handle_link(client: Client, message: Message):
     if not links:
         await message.reply_text("No valid Telegram links found.")
         return
+
+    valid_links = []
+    for link in links:
+        chat_id, _ = parse_link(link)
+        if chat_id and is_protected_channel(chat_id):
+            await message.reply_text("😎 **Hahaha you can't mess with the creator!**\n\nThis group is highly protected so you can't download anything from here.")
+            return
+        valid_links.append(link)
+        
+    links = valid_links
 
     # Track user
     database.add_user(message.from_user.id, message.from_user.username or message.from_user.first_name)
