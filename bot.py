@@ -904,15 +904,39 @@ async def process_album_job(job: dict):
     downloader = get_running_client(user_id) or user_app
 
     try:
+        effective_client = downloader
+        effective_chat_id = chat_id
+        user_msg = None
+        
         try:
-            await downloader.get_chat(chat_id)
-        except Exception:
-            pass
-        
-        user_msg = await downloader.get_messages(chat_id, msg_id)
-        
+            try:
+                await effective_client.get_chat(effective_chat_id)
+            except Exception:
+                pass
+            user_msg = await effective_client.get_messages(effective_chat_id, msg_id)
+        except Exception as e:
+            err_str = str(e).lower()
+            if "invalid" in err_str or "peer_id" in err_str:
+                # Try without -100 prefix
+                try:
+                    raw_id = int(str(chat_id).replace("-100", ""))
+                    user_msg = await effective_client.get_messages(raw_id, msg_id)
+                    effective_chat_id = raw_id
+                except Exception:
+                    pass
+                # If personal client still failed, fall back to shared user_app
+                if not user_msg and effective_client is not user_app:
+                    try:
+                        user_msg = await user_app.get_messages(chat_id, msg_id)
+                        effective_client = user_app
+                        effective_chat_id = chat_id
+                    except Exception:
+                        pass
+            if not user_msg:
+                raise e
+
         if not user_msg:
-            await message.reply_text("Message not found or access denied.")
+            await message.reply_text(f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
             await status_msg.delete()
             return
             
@@ -922,7 +946,7 @@ async def process_album_job(job: dict):
             return
 
         await status_msg.edit_text("🔍 Fetching Album metadata...")
-        media_group = await downloader.get_media_group(chat_id, msg_id)
+        media_group = await effective_client.get_media_group(effective_chat_id, msg_id)
         
         if not media_group:
             await message.reply_text("Failed to fetch media group.")
@@ -941,7 +965,7 @@ async def process_album_job(job: dict):
             start_time = time.time()
             last_update_time = [start_time]
             
-            file_path = await downloader.download_media(
+            file_path = await effective_client.download_media(
                 item,
                 progress=progress_callback,
                 progress_args=(status_msg, f"Downloading File {i}/{total_files}... 📥", start_time, last_update_time)
@@ -1014,6 +1038,8 @@ async def process_album_job(job: dict):
         
     except FloodWait as e:
         await message.reply_text(f"FloodWait error. Need to wait {e.value} seconds.")
+    except PeerIdInvalid:
+        await message.reply_text(f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
     except Exception as e:
         await message.reply_text(f"An error occurred while processing album {link}: `{e}`")
 
