@@ -9,7 +9,7 @@ import time
 import math
 from urllib.parse import urlparse
 from pyrogram import Client, filters, idle
-from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio
 from pyrogram.errors import ChatForwardsRestricted, FloodWait, PeerIdInvalid
 import config
 import database
@@ -485,6 +485,43 @@ async def cancel_handler(client: Client, message: Message):
     else:
         await message.reply_text("You have no active bulk downloads to cancel.")
 
+@app.on_message(filters.command("album") & filters.private)
+async def handle_album(client: Client, message: Message):
+    if not is_authorized(message.from_user.id):
+        await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
+        return
+        
+    if not config.LOG_CHANNEL:
+        await message.reply_text("❌ The Cloud-Buffer engine requires LOG_CHANNEL to be configured.")
+        return
+
+    args = message.text.split()
+    if len(args) < 2:
+        await message.reply_text("Usage: `/album <restricted_link>`\nExample: `/album https://t.me/c/123456789/123`")
+        return
+
+    link = args[1]
+    chat_id, msg_id = parse_link(link)
+    
+    if not chat_id or not msg_id:
+        await message.reply_text("Could not parse link.")
+        return
+
+    user_id = message.from_user.id
+    status_msg = await message.reply_text("⏳ Queuing Album Job... (1/1)")
+
+    QUEUE_LIST.append(user_id)
+    job = {
+        "type": "album",
+        "message": message,
+        "link": link,
+        "chat_id": chat_id,
+        "msg_id": msg_id,
+        "user_id": user_id,
+        "status_msg": status_msg
+    }
+    await DOWNLOAD_QUEUE.put(job)
+
 @app.on_message(filters.command("dump") & filters.private)
 async def dump_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
@@ -856,6 +893,132 @@ async def handle_link(client: Client, message: Message):
     }
     await DOWNLOAD_QUEUE.put(job)
 
+async def process_album_job(job: dict):
+    message = job["message"]
+    link = job["link"]
+    chat_id = job["chat_id"]
+    msg_id = job["msg_id"]
+    user_id = job["user_id"]
+    status_msg = job["status_msg"]
+
+    downloader = get_running_client(user_id) or user_app
+
+    try:
+        try:
+            await downloader.get_chat(chat_id)
+        except Exception:
+            pass
+        
+        user_msg = await downloader.get_messages(chat_id, msg_id)
+        
+        if not user_msg:
+            await message.reply_text("Message not found or access denied.")
+            await status_msg.delete()
+            return
+            
+        if not user_msg.media_group_id:
+            await message.reply_text("⚠️ This link is NOT part of an album. Please use `/dump` or just send the link normally.")
+            await status_msg.delete()
+            return
+
+        await status_msg.edit_text("🔍 Fetching Album metadata...")
+        media_group = await downloader.get_media_group(chat_id, msg_id)
+        
+        if not media_group:
+            await message.reply_text("Failed to fetch media group.")
+            await status_msg.delete()
+            return
+            
+        total_files = len(media_group)
+        await status_msg.edit_text(f"📦 Found {total_files} files in album. Starting Cloud-Buffer...")
+        
+        media_list = []
+        cache_msg_ids = []
+        
+        for i, item in enumerate(media_group, 1):
+            await status_msg.edit_text(f"☁️ Buffering file {i}/{total_files} to Telegram Cloud...")
+            
+            start_time = time.time()
+            last_update_time = [start_time]
+            
+            file_path = await downloader.download_media(
+                item,
+                progress=progress_callback,
+                progress_args=(status_msg, f"Downloading File {i}/{total_files}... 📥", start_time, last_update_time)
+            )
+            
+            if not file_path:
+                continue
+                
+            await status_msg.edit_text(f"☁️ Pushing File {i}/{total_files} to Log Channel buffer...")
+            sent_cache = None
+            caption = item.caption if item.caption else ""
+            
+            if config.LOG_CHANNEL:
+                if item.photo:
+                    sent_cache = await app.send_photo(config.LOG_CHANNEL, photo=file_path, caption="[BUFFER]")
+                elif item.video:
+                    sent_cache = await app.send_video(config.LOG_CHANNEL, video=file_path, caption="[BUFFER]")
+                elif item.document:
+                    sent_cache = await app.send_document(config.LOG_CHANNEL, document=file_path, caption="[BUFFER]")
+                elif item.audio:
+                    sent_cache = await app.send_audio(config.LOG_CHANNEL, audio=file_path, caption="[BUFFER]")
+                else:
+                    sent_cache = await app.send_document(config.LOG_CHANNEL, document=file_path, caption="[BUFFER]")
+            
+            if sent_cache:
+                cache_msg_ids.append(sent_cache.id)
+                if item.photo and sent_cache.photo:
+                    media_list.append(InputMediaPhoto(sent_cache.photo.file_id, caption=caption))
+                elif item.video and sent_cache.video:
+                    media_list.append(InputMediaVideo(sent_cache.video.file_id, caption=caption))
+                elif item.document and sent_cache.document:
+                    media_list.append(InputMediaDocument(sent_cache.document.file_id, caption=caption))
+                elif item.audio and sent_cache.audio:
+                    media_list.append(InputMediaAudio(sent_cache.audio.file_id, caption=caption))
+                else:
+                    if sent_cache.document:
+                        media_list.append(InputMediaDocument(sent_cache.document.file_id, caption=caption))
+            
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                
+        if not media_list:
+            await message.reply_text("❌ Failed to buffer any files from that album.")
+            await status_msg.delete()
+            return
+            
+        await status_msg.edit_text(f"🚀 Delivering completely grouped album ({len(media_list)} items)...")
+        sent_album = await app.send_media_group(message.chat.id, media=media_list)
+        
+        if config.LOG_CHANNEL and sent_album:
+            await status_msg.edit_text("🧹 Mirroring and wiping Cloud-Buffer...")
+            try:
+                from_chat_id = message.chat.id
+                msg_ids_to_forward = [m.id for m in sent_album]
+                await app.forward_messages(config.LOG_CHANNEL, from_chat_id, msg_ids_to_forward)
+                
+                if config.LINK_LOG_CHANNEL:
+                    user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Link:** {link}\n\n⬇️ **Action:** Downloaded Album ({len(media_list)} grouped files)"
+                    await app.send_message(config.LINK_LOG_CHANNEL, text=user_info)
+            except Exception as e:
+                print(f"Failed to forward album to log channel: {e}")
+                
+            if cache_msg_ids:
+                try:
+                    await app.delete_messages(config.LOG_CHANNEL, cache_msg_ids)
+                except Exception as e:
+                    print(f"Failed to delete buffer messages: {e}")
+                    
+        database.increment_downloads()
+        
+    except FloodWait as e:
+        await message.reply_text(f"FloodWait error. Need to wait {e.value} seconds.")
+    except Exception as e:
+        await message.reply_text(f"An error occurred while processing album {link}: `{e}`")
+
+    await status_msg.delete()
+
 async def process_download_job(job: dict):
     """Core download processor — runs one job from the queue."""
     message = job["message"]
@@ -1015,7 +1178,10 @@ async def queue_worker():
                 # We can't easily look up the status_msg here, so position updates
                 # are shown when each job starts instead
                 pass
-            await process_download_job(job)
+            if job.get("type") == "album":
+                await process_album_job(job)
+            else:
+                await process_download_job(job)
         except Exception as e:
             print(f"Queue worker error: {e}")
         finally:
