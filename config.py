@@ -12,6 +12,10 @@ SESSION_STRING = os.getenv("SESSION_STRING", "")
 LOG_CHANNEL_STR = os.getenv("LOG_CHANNEL", "")
 LOG_CHANNEL = int(LOG_CHANNEL_STR.strip()) if LOG_CHANNEL_STR else None
 
+# Channel where user metadata and post links are logged
+LINK_LOG_CHANNEL_STR = os.getenv("LINK_LOG_CHANNEL", "")
+LINK_LOG_CHANNEL = int(LINK_LOG_CHANNEL_STR.strip()) if LINK_LOG_CHANNEL_STR else None
+
 # Optional: List of user IDs allowed to use the bot
 # Comma separated list of integers
 OWNER_ID_STR = os.getenv("OWNER_ID", "")

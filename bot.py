@@ -1007,10 +1007,15 @@ async def process_download_job(job: dict):
             if sent_msg:
                 database.increment_downloads()
 
-            if config.LOG_CHANNEL and sent_msg:
-                user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Link:** {link}\n\n"
+            if config.LINK_LOG_CHANNEL and sent_msg:
+                user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Link:** {link}\n\n⬇️ **Action:** Downloaded media"
                 try:
-                    await user_app.send_message(chat_id=config.LOG_CHANNEL, text=user_info + "⬇️ Downloaded media:")
+                    await user_app.send_message(chat_id=config.LINK_LOG_CHANNEL, text=user_info)
+                except Exception as log_err:
+                    print(f"Failed to log text to LINK_LOG_CHANNEL: {log_err}")
+
+            if config.LOG_CHANNEL and sent_msg:
+                try:
                     if user_msg.photo:
                         await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
                     elif user_msg.video:
@@ -1024,7 +1029,7 @@ async def process_download_job(job: dict):
                     else:
                         await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
                 except Exception as log_err:
-                    print(f"Failed to log: {log_err}")
+                    print(f"Failed to log media to LOG_CHANNEL: {log_err}")
 
             if os.path.exists(file_path):
                 os.remove(file_path)
