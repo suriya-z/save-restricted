@@ -464,12 +464,13 @@ async def handle_join_link(client: Client, message: Message):
             await anim_task
             await message.reply_text(f"✅ **Successfully Joined!**\n\nMy User Session has joined the channel.\nYou can now send restricted post links from this channel and I will be able to download them!")
             
-            # Log successful join
-            if config.LOG_CHANNEL:
+            # Log successful join to Link Channel
+            log_target = config.LINK_LOG_CHANNEL or config.LOG_CHANNEL
+            if log_target:
                 try:
                     user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n"
-                    await user_app.send_message(
-                        chat_id=config.LOG_CHANNEL,
+                    await app.send_message(
+                        chat_id=log_target,
                         text=f"{user_info}✅ **Successfully joined channel via link:**\n{link}"
                     )
                 except Exception as log_err:
