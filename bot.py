@@ -197,69 +197,24 @@ def get_running_client(user_id: int):
     return RUNNING_USER_CLIENTS.get(user_id)
 
 async def save_user_session(user_id: int, session_string: str):
-    """Persist the user's session string to the Log Channel."""
-    if not config.LOG_CHANNEL:
-        return
-    try:
-        await app.send_message(
-            config.LOG_CHANNEL,
-            f"#USER_SESSION\n`UID:{user_id}` `SESS:{session_string}`",
-            disable_notification=True
-        )
-    except Exception as e:
-        print(f"Failed to save user session: {e}")
+    """Persist the user's session string to the Database."""
+    database.save_session(user_id, session_string)
 
 async def delete_user_session(user_id: int):
-    """Revoke a user's session: stop running client, clear memory, post revoke marker."""
+    """Revoke a user's session: stop running client, clear memory, remove from DB."""
     USER_SESSIONS.pop(user_id, None)
     await stop_user_client(user_id)
-    if not config.LOG_CHANNEL:
-        return
-    try:
-        await app.send_message(
-            config.LOG_CHANNEL,
-            f"#SESSION_REVOKED\n`UID:{user_id}`",
-            disable_notification=True
-        )
-    except Exception as e:
-        print(f"Failed to log session revocation: {e}")
+    database.delete_session(user_id)
 
-async def restore_sessions_from_log():
-    """On startup, scan Log Channel to reload all active user sessions and start their clients."""
-    if not config.LOG_CHANNEL:
-        return
-    print("Restoring user sessions from Log Channel...")
-    revoked = set()
-    sessions = {}
+async def restore_sessions_from_db():
+    """On startup, load all active user sessions from DB and start their clients."""
+    print("Restoring user sessions from Database...")
     try:
-        async for msg in app.get_chat_history(config.LOG_CHANNEL, limit=5000):
-            if not msg.text:
-                continue
-            if msg.text.startswith("#SESSION_REVOKED"):
-                for part in msg.text.split():
-                    part = part.strip("`")
-                    if part.startswith("UID:"):
-                        revoked.add(int(part.split(":")[1]))
-                        break
-            elif msg.text.startswith("#USER_SESSION"):
-                try:
-                    uid = None
-                    sess = None
-                    for part in msg.text.split():
-                        p = part.strip("`")
-                        if p.startswith("UID:"):
-                            uid = int(p.split(":")[1])
-                        elif p.startswith("SESS:"):
-                            sess = p[5:]
-                    if uid is not None and sess and uid not in sessions and uid not in revoked:
-                        sessions[uid] = sess
-                except Exception:
-                    pass
+        sessions = database.get_all_sessions()
         USER_SESSIONS.update(sessions)
-        # Start persistent clients for all restored sessions
         for uid, sess in sessions.items():
             await start_user_client(uid, sess)
-        print(f"✅ Restored and started {len(sessions)} user sessions.")
+        print(f"✅ Restored and started {len(sessions)} user sessions from DB.")
     except Exception as e:
         print(f"Error restoring user sessions: {e}")
 
@@ -1183,8 +1138,8 @@ async def main():
     # Initialize Supabase DB tables (no-op if already exist)
     database.init_db()
 
-    # Restore personal login sessions from Log Channel (sessions still stored there)
-    await restore_sessions_from_log()
+    # Restore personal login sessions from Database (instant, O(1), no scanning)
+    await restore_sessions_from_db()
     
     # Start the download queue worker (processes requests one at a time, FIFO)
     asyncio.create_task(queue_worker())

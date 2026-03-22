@@ -15,9 +15,19 @@ def init_db():
                 CREATE TABLE IF NOT EXISTS users (
                     user_id BIGINT PRIMARY KEY,
                     username TEXT,
-                    banned BOOLEAN DEFAULT FALSE
+                    banned BOOLEAN DEFAULT FALSE,
+                    session_string TEXT
                 );
             """)
+            # Ensure session_string column exists if upgrading from an older schema
+            try:
+                cur.execute("ALTER TABLE users ADD COLUMN session_string TEXT;")
+            except psycopg2.errors.DuplicateColumn:
+                pass
+            except Exception as e:
+                # Rollback if transaction aborted
+                conn.rollback()
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS stats (
                     key TEXT PRIMARY KEY,
@@ -40,6 +50,32 @@ def add_user(user_id: int, username: str):
                 ON CONFLICT (user_id) DO NOTHING;
             """, (user_id, username))
         conn.commit()
+
+def save_session(user_id: int, session_string: str):
+    """Save the Pyrogram session string to the user."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE users SET session_string = %s WHERE user_id = %s
+            """, (session_string, user_id))
+        conn.commit()
+
+def delete_session(user_id: int):
+    """Remove the Pyrogram session string for the user."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE users SET session_string = NULL WHERE user_id = %s
+            """, (user_id,))
+        conn.commit()
+
+def get_all_sessions() -> dict:
+    """Return all non-null sessions as {user_id: session_string}."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, session_string FROM users WHERE session_string IS NOT NULL")
+            rows = cur.fetchall()
+            return {r["user_id"]: r["session_string"] for r in rows}
 
 def is_banned(user_id: int) -> bool:
     with get_conn() as conn:
