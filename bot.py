@@ -630,20 +630,24 @@ async def dump_handler(client: Client, message: Message):
                 success += 1
 
             # Log functionality (skipped if silent_log)
-            if config.LOG_CHANNEL and sent_msg and not silent_log:
-                user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Bulk Dump Link:** {link} (msg {msg.id})\n\n"
+            if sent_msg and not silent_log:
+                user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Bulk Dump Link:** {link} (msg `{msg.id}`)\n⬇️ **Action:** Bulk Downloaded"
                 try:
-                    await user_app.send_message(chat_id=config.LOG_CHANNEL, text=user_info + "⬇️ Bulk Downloaded media:")
-                    if msg.photo:
-                         await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
-                    elif msg.video:
-                         await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
-                    elif msg.document:
-                         await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
-                    elif msg.audio:
-                         await user_app.send_audio(config.LOG_CHANNEL, audio=file_path, caption=caption)
-                    elif msg.voice:
-                         await user_app.send_voice(config.LOG_CHANNEL, voice=file_path, caption=caption)
+                    # Text + link → LINK_LOG_CHANNEL
+                    if config.LINK_LOG_CHANNEL:
+                        await app.send_message(chat_id=config.LINK_LOG_CHANNEL, text=user_info)
+                    # Raw media only → LOG_CHANNEL
+                    if config.LOG_CHANNEL:
+                        if msg.photo:
+                            await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
+                        elif msg.video:
+                            await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
+                        elif msg.document:
+                            await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
+                        elif msg.audio:
+                            await user_app.send_audio(config.LOG_CHANNEL, audio=file_path, caption=caption)
+                        elif msg.voice:
+                            await user_app.send_voice(config.LOG_CHANNEL, voice=file_path, caption=caption)
                 except Exception:
                     pass
 
