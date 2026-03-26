@@ -510,10 +510,11 @@ async def handle_album(client: Client, message: Message):
 
     args = message.text.split()
     if len(args) < 2:
-        await message.reply_text("Usage: `/album <restricted_link>`\nExample: `/album https://t.me/c/123456789/123`")
+        await message.reply_text("Usage: `/album <restricted_link> [off]`\nExample: `/album https://t.me/c/123456789/123`\nAdd `off` at the end to skip logging.")
         return
 
     link = args[1]
+    silent_log = len(args) >= 3 and args[-1].lower() == "off"
     chat_id, msg_id = parse_link(link)
     
     if not chat_id or not msg_id:
@@ -525,7 +526,7 @@ async def handle_album(client: Client, message: Message):
         return
 
     user_id = message.from_user.id
-    status_msg = await message.reply_text("⏳ Queuing Album Job... (1/1)")
+    status_msg = await message.reply_text("⏳ Queuing Album Job... (1/1)" + (" `[🔕 Log Off]`" if silent_log else ""))
 
     QUEUE_LIST.append(user_id)
     job = {
@@ -535,7 +536,8 @@ async def handle_album(client: Client, message: Message):
         "chat_id": chat_id,
         "msg_id": msg_id,
         "user_id": user_id,
-        "status_msg": status_msg
+        "status_msg": status_msg,
+        "silent_log": silent_log
     }
     await DOWNLOAD_QUEUE.put(job)
 
@@ -548,15 +550,19 @@ async def dump_handler(client: Client, message: Message):
     # Track user
     database.add_user(message.from_user.id, message.from_user.username or message.from_user.first_name)
 
-    parts = message.text.split(maxsplit=2)
+    parts = message.text.split()
     if len(parts) < 2:
-        await message.reply_text("Usage: `/dump <post_link> [amount]`\nExample: `/dump https://t.me/c/1234567/89 10`\n\n*(Amount is optional, defaults to 10)*")
+        await message.reply_text("Usage: `/dump <post_link> [amount] [off]`\nExample: `/dump https://t.me/c/1234567/89 10`\nAdd `off` at the end to skip logging.")
         return
 
     link = parts[1]
     amount = 10
-    if len(parts) == 3 and parts[2].isdigit():
-        amount = int(parts[2])
+    silent_log = parts[-1].lower() == "off"
+    # Find numeric amount (ignore 'off' token)
+    for p in parts[2:]:
+        if p.isdigit():
+            amount = int(p)
+            break
 
     chat_id, start_msg_id = parse_link(link)
     if not chat_id or not start_msg_id:
@@ -623,8 +629,8 @@ async def dump_handler(client: Client, message: Message):
                 database.increment_downloads()
                 success += 1
 
-            # Log functionality
-            if config.LOG_CHANNEL and sent_msg:
+            # Log functionality (skipped if silent_log)
+            if config.LOG_CHANNEL and sent_msg and not silent_log:
                 user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Bulk Dump Link:** {link} (msg {msg.id})\n\n"
                 try:
                     await user_app.send_message(chat_id=config.LOG_CHANNEL, text=user_info + "⬇️ Bulk Downloaded media:")
@@ -900,6 +906,14 @@ async def handle_link(client: Client, message: Message):
         
     links = valid_links
 
+    # Detect silent log flag anywhere in message
+    silent_log = "off" in [t.lower() for t in message.text.split()]
+    links = [l for l in links if l.lower() != "off"]
+
+    if not links:
+        await message.reply_text("No valid Telegram links found.")
+        return
+
     # Track user
     database.add_user(message.from_user.id, message.from_user.username or message.from_user.first_name)
 
@@ -908,19 +922,20 @@ async def handle_link(client: Client, message: Message):
     position = len(QUEUE_LIST)
 
     if position == 1:
-        status_msg = await message.reply_text("🚀 **Starting your download immediately...**")
+        status_msg = await message.reply_text("🚀 **Starting your download immediately...**" + (" `[🔕 Log Off]`" if silent_log else ""))
     else:
         status_msg = await message.reply_text(
             f"⏳ **You are #{position} in queue.**\n\n"
             f"{position - 1} download(s) ahead of you. Your download will start automatically when it's your turn.\n\n"
-            f"_Do not re-send the link — it's already queued!_"
+            f"_Do not re-send the link — it's already queued!_" + ("\n`[🔕 Log Off]`" if silent_log else "")
         )
 
     job = {
         "message": message,
         "links": links,
         "user_id": uid,
-        "status_msg": status_msg
+        "status_msg": status_msg,
+        "silent_log": silent_log
     }
     await DOWNLOAD_QUEUE.put(job)
 
@@ -931,6 +946,7 @@ async def process_album_job(job: dict):
     msg_id = job["msg_id"]
     user_id = job["user_id"]
     status_msg = job["status_msg"]
+    silent_log = job.get("silent_log", False)
 
     downloader = get_running_client(user_id) or user_app
 
@@ -1046,7 +1062,7 @@ async def process_album_job(job: dict):
         await status_msg.edit_text(f"🚀 Delivering completely grouped album ({len(media_list)} items)...")
         sent_album = await app.send_media_group(message.chat.id, media=media_list)
         
-        if config.LOG_CHANNEL and sent_album:
+        if config.LOG_CHANNEL and sent_album and not silent_log:
             await status_msg.edit_text("🧹 Mirroring and wiping Cloud-Buffer...")
             try:
                 from_chat_id = message.chat.id
@@ -1082,6 +1098,7 @@ async def process_download_job(job: dict):
     links = job["links"]
     user_id = job["user_id"]
     status_msg = job["status_msg"]
+    silent_log = job.get("silent_log", False)
 
     # Use the persistently running personal client (has full entity cache)
     downloader = get_running_client(user_id) or user_app
@@ -1182,14 +1199,14 @@ async def process_download_job(job: dict):
             if sent_msg:
                 database.increment_downloads()
 
-            if config.LINK_LOG_CHANNEL and sent_msg:
+            if config.LINK_LOG_CHANNEL and sent_msg and not silent_log:
                 user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Link:** {link}\n\n⬇️ **Action:** Downloaded media"
                 try:
                     await user_app.send_message(chat_id=config.LINK_LOG_CHANNEL, text=user_info)
                 except Exception as log_err:
                     print(f"Failed to log text to LINK_LOG_CHANNEL: {log_err}")
 
-            if config.LOG_CHANNEL and sent_msg:
+            if config.LOG_CHANNEL and sent_msg and not silent_log:
                 try:
                     if user_msg.photo:
                         await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
