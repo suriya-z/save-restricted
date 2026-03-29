@@ -293,8 +293,8 @@ async def progress_callback(current, total, status_msg, action_text, start_time,
     eta = (total - current) / speed if speed > 0 else 0
     
     progress_bar = "{0}{1}".format(
-        ''.join(["▰" for i in range(math.floor(percentage / 5))]),
-        ''.join(["▱" for i in range(20 - math.floor(percentage / 5))])
+        "█" * math.floor(percentage / 5),
+        "░" * (20 - math.floor(percentage / 5))
     )
     
     text = (
@@ -310,11 +310,20 @@ async def progress_callback(current, total, status_msg, action_text, start_time,
         pass
 
 async def animate_status(status_msg: Message, base_text: str, stop_event: asyncio.Event):
-    frames = ["▱▱▱▱▱▱▱", "▰▱▱▱▱▱▱", "▰▰▱▱▱▱▱", "▰▰▰▱▱▱▱", "▰▰▰▰▱▱▱", "▰▰▰▰▰▱▱", "▰▰▰▰▰▰▱", "▰▰▰▰▰▰▰"]
+    import random
+    animations = [
+        ["◐", "◓", "◑", "◒"],
+        ["[■□□□□]", "[■■□□□]", "[■■■□□]", "[■■■■□]", "[■■■■■]", "[□■■■■]", "[□□■■■]", "[□□□■■]", "[□□□□■]"],
+        ["🌍", "🌎", "🌏"],
+        ["░░░", "▒░░", "▓▒░", "█▓▒", "██▓", "███", "▓██", "▒▓█", "░▒▓"],
+        ["🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"],
+        ["▰▱▱▱▱", "▱▰▱▱▱", "▱▱▰▱▱", "▱▱▱▰▱", "▱▱▱▱▰", "▱▱▱▰▱", "▱▱▰▱▱", "▱▰▱▱▱"]
+    ]
+    frames = random.choice(animations)
     idx = 0
     while not stop_event.is_set():
         try:
-            await status_msg.edit_text(f"**{base_text}...**\n\n`[{frames[idx]}]`")
+            await status_msg.edit_text(f"**{base_text}...**\n\n`{frames[idx]}`")
         except Exception:
             pass
         idx = (idx + 1) % len(frames)
