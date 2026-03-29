@@ -19,8 +19,9 @@ def init_db():
                     session_string TEXT
                 );
             """)
-            # Ensure session_string column exists if upgrading from an older schema
+            # Ensure columns exist if upgrading from an older schema
             cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_string TEXT;")
+            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS silent BOOLEAN DEFAULT FALSE;")
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS stats (
                     key TEXT PRIMARY KEY,
@@ -87,6 +88,28 @@ def set_ban(user_id: int, status: bool) -> bool:
             updated = cur.rowcount
         conn.commit()
     return updated > 0
+
+def set_silent(user_id: int, status: bool) -> bool:
+    """Toggle silent mode for a user."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE users SET silent = %s WHERE user_id = %s",
+                (status, user_id)
+            )
+            updated = cur.rowcount
+        conn.commit()
+    return updated > 0
+
+def get_silent(user_id: int) -> bool:
+    """Check if the user has silent mode enabled."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT silent FROM users WHERE user_id = %s", (user_id,))
+            row = cur.fetchone()
+            if row and row["silent"]:
+                return True
+    return False
 
 def increment_downloads():
     with get_conn() as conn:

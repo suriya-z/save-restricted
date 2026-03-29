@@ -498,6 +498,24 @@ async def cancel_handler(client: Client, message: Message):
     else:
         await message.reply_text("You have no active bulk downloads to cancel.")
 
+@app.on_message(filters.command("silent") & filters.private)
+async def silent_handler(client: Client, message: Message):
+    if not is_authorized(message.from_user.id):
+        await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
+        return
+        
+    args = message.text.split()
+    if len(args) < 2 or args[1].upper() not in ["ON", "OFF"]:
+        current = database.get_silent(message.from_user.id)
+        state_text = "ON" if current else "OFF"
+        await message.reply_text(f"Your Silent Mode is currently: **{state_text}**\n\nUsage: `/silent ON` or `/silent OFF`\n_When ON, your downloads will not be posted to the log channels._")
+        return
+        
+    status = args[1].upper() == "ON"
+    database.set_silent(message.from_user.id, status)
+    state_text = "enabled 🔕 (No logs will be uploaded)" if status else "disabled 🔊 (Standard logging active)"
+    await message.reply_text(f"Silent mode is now **{state_text}**.")
+
 @app.on_message(filters.command("album") & filters.private)
 async def handle_album(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
@@ -514,7 +532,8 @@ async def handle_album(client: Client, message: Message):
         return
 
     link = args[1]
-    silent_log = len(args) >= 3 and args[-1].lower() == "off"
+    global_silent = database.get_silent(message.from_user.id)
+    silent_log = global_silent or (len(args) >= 3 and args[-1].lower() == "off")
     chat_id, msg_id = parse_link(link)
     
     if not chat_id or not msg_id:
@@ -557,7 +576,8 @@ async def dump_handler(client: Client, message: Message):
 
     link = parts[1]
     amount = 10
-    silent_log = parts[-1].lower() == "off"
+    global_silent = database.get_silent(message.from_user.id)
+    silent_log = global_silent or (parts[-1].lower() == "off")
     # Find numeric amount (ignore 'off' token)
     for p in parts[2:]:
         if p.isdigit():
@@ -885,7 +905,7 @@ async def login_conversation(client: Client, message: Message):
                 pass
             await message.reply_text(f"❌ Wrong 2FA password: `{e}`\n\nPlease start again with /login")
 
-@app.on_message(filters.regex(TG_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout"]))
+@app.on_message(filters.regex(TG_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout", "silent"]))
 async def handle_link(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("You are not authorized to use this bot.")
@@ -910,8 +930,9 @@ async def handle_link(client: Client, message: Message):
         
     links = valid_links
 
-    # Detect silent log flag anywhere in message
-    silent_log = "off" in [t.lower() for t in message.text.split()]
+    # Detect silent log flag anywhere in message or in DB
+    global_silent = database.get_silent(message.from_user.id)
+    silent_log = global_silent or ("off" in [t.lower() for t in message.text.split()])
     links = [l for l in links if l.lower() != "off"]
 
     if not links:
