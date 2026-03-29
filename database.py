@@ -1,11 +1,17 @@
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from contextlib import contextmanager
 
 SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL", "")
 
+@contextmanager
 def get_conn():
-    return psycopg2.connect(SUPABASE_DB_URL, cursor_factory=RealDictCursor)
+    conn = psycopg2.connect(SUPABASE_DB_URL, cursor_factory=RealDictCursor)
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 def init_db():
     """Create tables if they don't exist. Called once on bot startup."""
