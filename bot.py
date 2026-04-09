@@ -315,22 +315,38 @@ async def animate_status(status_msg: Message, base_text: str, stop_event: asynci
         ["◐", "◓", "◑", "◒"],
         ["[■□□□□]", "[■■□□□]", "[■■■□□]", "[■■■■□]", "[■■■■■]", "[□■■■■]", "[□□■■■]", "[□□□■■]", "[□□□□■]"],
         ["🌍", "🌎", "🌏"],
-        ["░░░", "▒░░", "▓▒░", "█▓▒", "██▓", "███", "▓██", "▒▓█", "░▒▓"],
+        ["░░▄", "▒░░", "▓▒░", "█▓▒", "██▓", "███", "▓██", "▒▓█", "░▒▓"],
         ["🕛", "🕐", "🕑", "🕒", "🕓", "🕔", "🕕", "🕖", "🕗", "🕘", "🕙", "🕚"],
         ["▰▱▱▱▱", "▱▰▱▱▱", "▱▱▰▱▱", "▱▱▱▰▱", "▱▱▱▱▰", "▱▱▱▰▱", "▱▱▰▱▱", "▱▰▱▱▱"]
     ]
     frames = random.choice(animations)
     idx = 0
+    fail_count = 0
     while not stop_event.is_set():
         try:
             await status_msg.edit_text(f"**{base_text}...**\n\n`{frames[idx]}`")
+            fail_count = 0  # Success, reset counter
         except Exception:
-            pass
+            fail_count += 1
+            if fail_count >= 3:
+                break # Stop hammering if connection is dead
+        
         idx = (idx + 1) % len(frames)
-        for _ in range(5):
+        # Sleep for 2.5 seconds total (25 * 0.1)
+        for _ in range(25):
             if stop_event.is_set():
                 break
             await asyncio.sleep(0.1)
+
+async def heartbeat_task():
+    """Background task to keep the bot's TCP connection alive on Render."""
+    while True:
+        try:
+            await app.get_me()
+            # print("💓 Heartbeat: Connection stable.")
+        except Exception as e:
+            print(f"💓 Heartbeat Warning: {e}")
+        await asyncio.sleep(60)
 
 def get_welcome_text(user_mention):
     return (
@@ -1374,6 +1390,8 @@ async def watcher_listener(client: Client, message: Message):
         for user_id in subscribers:
             asyncio.create_task(silent_download_and_send(message, user_id))
 
+import hitter
+hitter.register_hitter_handlers(app, is_authorized)
 
 async def main():
     if not config.check_config():
@@ -1418,6 +1436,10 @@ async def main():
     # Start the download queue worker (processes requests one at a time, FIFO)
     asyncio.create_task(queue_worker())
     print("✅ Download queue worker started.")
+    
+    # Start the heartbeat task to prevent socket.send() failures on Render
+    asyncio.create_task(heartbeat_task())
+    print("💓 Connection heartbeat started.")
 
     
     await idle()
