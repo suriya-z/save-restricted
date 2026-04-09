@@ -15,31 +15,51 @@ def get_conn():
 
 def init_db():
     """Create tables if they don't exist. Called once on bot startup."""
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS users (
-                    user_id BIGINT PRIMARY KEY,
-                    username TEXT,
-                    banned BOOLEAN DEFAULT FALSE,
-                    session_string TEXT
-                );
-            """)
-            # Ensure columns exist if upgrading from an older schema
-            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_string TEXT;")
-            cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS silent BOOLEAN DEFAULT FALSE;")
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS stats (
-                    key TEXT PRIMARY KEY,
-                    value BIGINT DEFAULT 0
-                );
-            """)
-            cur.execute("""
-                INSERT INTO stats (key, value) VALUES ('downloads', 0)
-                ON CONFLICT (key) DO NOTHING;
-            """)
-        conn.commit()
-    print("✅ Database initialized (Supabase PostgreSQL)")
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS users (
+                        user_id BIGINT PRIMARY KEY,
+                        username TEXT,
+                        banned BOOLEAN DEFAULT FALSE,
+                        session_string TEXT
+                    );
+                """)
+                # Ensure columns exist if upgrading from an older schema
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_string TEXT;")
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS silent BOOLEAN DEFAULT FALSE;")
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS stats (
+                        key TEXT PRIMARY KEY,
+                        value BIGINT DEFAULT 0
+                    );
+                """)
+                cur.execute("""
+                    INSERT INTO stats (key, value) VALUES ('downloads', 0)
+                    ON CONFLICT (key) DO NOTHING;
+                """)
+            conn.commit()
+        print("✅ Database initialized (Supabase PostgreSQL)")
+    except Exception as e:
+        # Mask the password in the URL for safe logging
+        masked_url = SUPABASE_DB_URL
+        if "@" in SUPABASE_DB_URL:
+            # Format: postgresql://[user]:[pass]@[host]:[port]/[db]
+            prefix, rest = SUPABASE_DB_URL.split(":", 1)
+            if "//" in rest:
+                proto, remaining = rest.split("//", 1)
+                if "@" in remaining:
+                    credentials, host_info = remaining.split("@", 1)
+                    if ":" in credentials:
+                        user, pw = credentials.split(":", 1)
+                        masked_url = f"{prefix}:{proto}//{user}:***@{host_info}"
+                    else:
+                        masked_url = f"{prefix}:{proto}//{credentials}@{host_info}"
+        
+        print(f"❌ DATABASE ERROR: {e}")
+        print(f"🔗 Attempted URL: {masked_url}")
+        raise e
 
 def add_user(user_id: int, username: str):
     with get_conn() as conn:

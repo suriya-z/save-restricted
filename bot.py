@@ -1421,6 +1421,15 @@ async def main():
     print("Starting Bot Client...")
     await app.start()
     print("Bot Client Started!")
+
+    # Force resolve log channels to prevent PeerIdInvalid in handle_updates
+    for channel_id in [config.LOG_CHANNEL, config.LINK_LOG_CHANNEL]:
+        if channel_id:
+            try:
+                await app.get_chat(channel_id)
+                print(f"✅ Resolved log channel: {channel_id}")
+            except Exception as e:
+                print(f"⚠️ Warning: Could not resolve channel {channel_id}: {e}")
     
     print("\nBot is running!")
     
