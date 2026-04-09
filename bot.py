@@ -1390,9 +1390,6 @@ async def watcher_listener(client: Client, message: Message):
         for user_id in subscribers:
             asyncio.create_task(silent_download_and_send(message, user_id))
 
-import hitter
-hitter.register_hitter_handlers(app, is_authorized)
-
 async def main():
     if not config.check_config():
         print("Exiting due to missing configuration.")
