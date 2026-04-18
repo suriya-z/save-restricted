@@ -23,12 +23,22 @@ def init_db():
                         user_id BIGINT PRIMARY KEY,
                         username TEXT,
                         banned BOOLEAN DEFAULT FALSE,
-                        session_string TEXT
+                        session_string TEXT,
+                        silent BOOLEAN DEFAULT FALSE,
+                        tier TEXT DEFAULT 'free',
+                        daily_bytes BIGINT DEFAULT 0,
+                        last_used_date DATE DEFAULT CURRENT_DATE,
+                        premium_expiry TIMESTAMP DEFAULT NULL
                     );
                 """)
                 # Ensure columns exist if upgrading from an older schema
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS session_string TEXT;")
                 cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS silent BOOLEAN DEFAULT FALSE;")
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS tier TEXT DEFAULT 'free';")
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS daily_bytes BIGINT DEFAULT 0;")
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_used_date DATE DEFAULT CURRENT_DATE;")
+                cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS premium_expiry TIMESTAMP DEFAULT NULL;")
+                
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS stats (
                         key TEXT PRIMARY KEY,
@@ -38,6 +48,16 @@ def init_db():
                 cur.execute("""
                     INSERT INTO stats (key, value) VALUES ('downloads', 0)
                     ON CONFLICT (key) DO NOTHING;
+                """)
+                
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS premium_keys (
+                        key_string TEXT PRIMARY KEY,
+                        tier TEXT NOT NULL,
+                        days INT NOT NULL,
+                        used_by BIGINT DEFAULT NULL,
+                        used_at TIMESTAMP DEFAULT NULL
+                    );
                 """)
             conn.commit()
         print("✅ Database initialized (Supabase PostgreSQL)")
@@ -162,3 +182,92 @@ def get_all_users() -> dict:
             cur.execute("SELECT user_id, username, banned FROM users")
             rows = cur.fetchall()
     return {str(r["user_id"]): {"username": r["username"], "banned": r["banned"]} for r in rows}
+
+# --- PREMIUM & QUOTA FUNCTIONS ---
+from datetime import datetime
+
+def check_and_update_limit(user_id: int, file_size_bytes: int) -> tuple[bool, str]:
+    """Checks if a download is allowed for the user's tier. Updates daily_bytes if allowed.
+    Returns (True, "") if allowed, or (False, "reason string") if denied."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # 1. Clear old daily limits and downgrade expired premium internally
+            cur.execute("""
+                UPDATE users 
+                SET daily_bytes = 0 
+                WHERE last_used_date < CURRENT_DATE;
+            """)
+            cur.execute("""
+                UPDATE users
+                SET last_used_date = CURRENT_DATE
+                WHERE user_id = %s;
+            """, (user_id,))
+            
+            cur.execute("""
+                UPDATE users
+                SET tier = 'free', premium_expiry = NULL
+                WHERE premium_expiry < NOW() AND tier != 'free';
+            """)
+            
+            # 2. Get user tier and usage
+            cur.execute("SELECT tier, daily_bytes FROM users WHERE user_id = %s", (user_id,))
+            row = cur.fetchone()
+            if not row:
+                return False, "User not found in DB. Please hit /start again."
+                
+            tier = row["tier"]
+            daily_bytes = row["daily_bytes"]
+            
+            # 3. Check Free Limits
+            if tier == 'free':
+                if file_size_bytes > 100 * 1024 * 1024:
+                    return False, "File exceeds **100MB** single-file limit for Free users."
+                if daily_bytes + file_size_bytes > 500 * 1024 * 1024:
+                    return False, "This file puts you over your **500MB** daily Free limit."
+            
+            # 4. If approved, add bytes
+            cur.execute("UPDATE users SET daily_bytes = daily_bytes + %s WHERE user_id = %s", (file_size_bytes, user_id))
+        conn.commit()
+    return True, ""
+
+def get_user_plan(user_id: int) -> dict:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            # Clean expired first
+            cur.execute("UPDATE users SET tier = 'free', premium_expiry = NULL WHERE premium_expiry < NOW() AND tier != 'free'")
+            
+            cur.execute("SELECT tier, daily_bytes, premium_expiry FROM users WHERE user_id = %s", (user_id,))
+            return cur.fetchone() or {"tier": "free", "daily_bytes": 0, "premium_expiry": None}
+
+def generate_key(key_string: str, tier: str, days: int):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO premium_keys (key_string, tier, days) VALUES (%s, %s, %s)", (key_string, tier, days))
+        conn.commit()
+
+def redeem_key(user_id: int, key_string: str) -> tuple[bool, str]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT tier, days, used_by FROM premium_keys WHERE key_string = %s", (key_string,))
+            key_data = cur.fetchone()
+            if not key_data:
+                return False, "Invalid key."
+            if key_data["used_by"]:
+                return False, "Key has already been used."
+            
+            tier = key_data["tier"]
+            days = key_data["days"]
+            
+            # Apply key
+            cur.execute("UPDATE premium_keys SET used_by = %s, used_at = NOW() WHERE key_string = %s", (user_id, key_string))
+            
+            # Update user plan
+            cur.execute("""
+                UPDATE users 
+                SET tier = %s, 
+                    premium_expiry = COALESCE(premium_expiry, NOW()) + floor(%s * 86400) * interval '1 second'
+                WHERE user_id = %s
+            """, (tier, days, user_id))
+            
+        conn.commit()
+    return True, f"Successfully upgraded to **{tier.title()} Plan** for {days} days!"

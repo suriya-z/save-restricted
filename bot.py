@@ -478,6 +478,74 @@ async def broadcast_handler(client: Client, message: Message):
             
     await status_msg.edit_text(f"✅ **Broadcast Completed!**\n\nSuccess: `{success}`\nFailed: `{failed}`")
 
+# ─── PREMIUM SUBSCRIPTION COMMANDS ──────────────────────────────────────────
+
+import string
+import random
+
+def generate_random_key(tier: str) -> str:
+    chars = string.ascii_uppercase + string.digits
+    suffix = "".join(random.choice(chars) for _ in range(10))
+    tier_prefix = "GLD" if tier == "gold" else "SLV"
+    return f"PREM-{tier_prefix}-{suffix}"
+
+@app.on_message(filters.command("genkey") & filters.private)
+async def genkey_handler(client: Client, message: Message):
+    if not is_admin(message.from_user.id):
+        return
+    args = message.command
+    if len(args) < 3:
+        await message.reply_text("Usage: `/genkey [silver|gold] [days]`\nExample: `/genkey gold 30`")
+        return
+    
+    tier = args[1].lower()
+    if tier not in ["silver", "gold"]:
+        await message.reply_text("Tier must be 'silver' or 'gold'.")
+        return
+        
+    try:
+        days = int(args[2])
+    except ValueError:
+        await message.reply_text("Days must be an integer.")
+        return
+        
+    key = generate_random_key(tier)
+    database.generate_key(key, tier, days)
+    await message.reply_text(f"✅ **Key Generated Successfully!**\n\n**Tier:** {tier.title()}\n**Duration:** {days} days\n**Key:** `{key}`\n\nGive this key to the user to `/redeem`.")
+
+@app.on_message(filters.command("redeem") & filters.private)
+async def redeem_handler(client: Client, message: Message):
+    if len(message.command) < 2:
+        await message.reply_text("Usage: `/redeem [PREM-XXX-XXXXXXXXX]`")
+        return
+        
+    key = message.command[1]
+    success, msg = database.redeem_key(message.from_user.id, key)
+    if success:
+        await message.reply_text(f"🎉 **PAYMENT SUCCESSFUL!** 🎉\n\n{msg}")
+    else:
+        await message.reply_text(f"❌ **Failed to redeem:** {msg}")
+
+@app.on_message(filters.command("myplan") & filters.private)
+async def plan_handler(client: Client, message: Message):
+    plan = database.get_user_plan(message.from_user.id)
+    tier = plan["tier"].title()
+    used = plan["daily_bytes"]
+    expiry = plan["premium_expiry"]
+    
+    txt = f"💎 **Your Current Subscription:**\n\n**Tier:** `{tier}`\n"
+    if tier == "Free":
+        used_mb = round(used / (1024*1024), 2)
+        txt += f"**Daily Usage:** `{used_mb}MB / 500MB`\n"
+        txt += "\n_Upgrade to Silver (49₹) or Gold (69₹) for Unlimited Downloads!_"
+    else:
+        txt += f"**Status:** `Unlimited Downloads Active`\n"
+        if expiry:
+            txt += f"**Valid Until:** `{expiry.strftime('%Y-%m-%d %H:%M:%S UTC')}`\n"
+    
+    await message.reply_text(txt)
+
+
 @app.on_message(filters.regex(JOIN_LINK_REGEX) & filters.private)
 async def handle_join_link(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
@@ -557,6 +625,11 @@ async def handle_album(client: Client, message: Message):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
         return
         
+    plan = database.get_user_plan(message.from_user.id)
+    if plan["tier"] != "gold":
+        await message.reply_text("👑 **GOLD FEATURE EXCLUSIVE** 👑\n\nThe `/album` command is reserved for Gold Members. \nSilver Members have unlimited single downloads, but bulk compilation requires the Gold Tier (69₹/month).")
+        return
+        
     if not config.LOG_CHANNEL:
         await message.reply_text("❌ The Cloud-Buffer engine requires LOG_CHANNEL to be configured.")
         return
@@ -599,6 +672,11 @@ async def handle_album(client: Client, message: Message):
 async def dump_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
+        return
+        
+    plan = database.get_user_plan(message.from_user.id)
+    if plan["tier"] != "gold":
+        await message.reply_text("👑 **GOLD FEATURE EXCLUSIVE** 👑\n\nThe `/dump` bulk downloader is reserved for Gold Members (69₹/month).\nPlease upgrade to Gold to use multiple offset downloading.")
         return
 
     # Track user
@@ -1220,6 +1298,31 @@ async def process_download_job(job: dict):
             if not user_msg.media:
                 await message.reply_text(f"Message {link} does not contain supported media.")
                 continue
+                
+            # --- SaaS QUOTA CHECK ---
+            file_size_bytes = 0
+            if user_msg.photo:
+                file_size_bytes = user_msg.photo.file_size
+            elif user_msg.video:
+                file_size_bytes = user_msg.video.file_size
+            elif user_msg.document:
+                file_size_bytes = user_msg.document.file_size
+            elif user_msg.audio:
+                file_size_bytes = user_msg.audio.file_size
+                
+            file_size_bytes = file_size_bytes or 0
+            
+            allowed, reason = database.check_and_update_limit(user_id, file_size_bytes)
+            if not allowed:
+                await status_msg.edit_text(
+                    f"🚫 **DOWNLOAD REJECTED**\n\n{reason}\n\n"
+                    f"💎 **Upgrade your Plan:**\n"
+                    f"• **Silver Plan (49₹/m):** Unlimited single-link downloads.\n"
+                    f"• **Gold Plan (69₹/m):** Unlimited bulk `/dump` and `/album` array cloning!\n\n"
+                    f"Contact Admin to buy a key, then type `/redeem KEY`"
+                )
+                continue
+            # -------------------------
 
             await status_msg.edit_text("🚀 Downloading at full speed...")
             start_time = time.time()
