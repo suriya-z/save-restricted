@@ -5,6 +5,9 @@ import asyncio
 # MUST be before any pyrogram import — Python 3.10+ has no default event loop
 asyncio.set_event_loop(asyncio.new_event_loop())
 
+import uvloop
+uvloop.install()
+
 import time
 import math
 from urllib.parse import urlparse
@@ -33,7 +36,11 @@ app = Client(
     bot_token=config.BOT_TOKEN,
     ipv6=False,
     sleep_threshold=60,
-    max_concurrent_transmissions=10  # Max parallel chunk uploads for speed
+    max_concurrent_transmissions=50,  # Hydra Socket Exploit (Multiple TCP connections)
+    device_model="iPhone 15 Pro Max", # Masquerading
+    system_version="iOS 17.4.1",      # Masquerading
+    app_version="10.9.1",             # Masquerading
+    lang_code="en"
 )
 
 user_app = Client(
@@ -44,7 +51,11 @@ user_app = Client(
     ipv6=False,
     in_memory=True,
     sleep_threshold=60,
-    max_concurrent_transmissions=10  # Max parallel chunk downloads for speed
+    max_concurrent_transmissions=50,  # Hydra Socket Exploit (Speed boost)
+    device_model="iPhone 15 Pro Max", # Bypass API throttling
+    system_version="iOS 17.4.1",      # Bypass API throttling
+    app_version="10.9.1",             # Bypass API throttling
+    lang_code="en"
 )
 
 # In-memory watcher state (resets on bot restart)
