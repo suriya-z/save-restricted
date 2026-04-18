@@ -5,8 +5,7 @@ import asyncio
 # MUST be before any pyrogram import — Python 3.10+ has no default event loop
 asyncio.set_event_loop(asyncio.new_event_loop())
 
-import uvloop
-uvloop.install()
+import hacks  # <--- Project Leviathan Speed Hacks (Socket/Chunk overrides)
 
 import time
 import math
