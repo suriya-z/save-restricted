@@ -480,6 +480,28 @@ async def broadcast_handler(client: Client, message: Message):
 
 # ─── PREMIUM SUBSCRIPTION COMMANDS ──────────────────────────────────────────
 
+BUY_PREMIUM_PITCH = """
+✨ **Unlock Limitless Power with Premium!** ✨
+
+Tired of restrictions? Upgrade your account and dominate Telegram with the ultimate proxy-speed downloader!
+
+💎 **Silver Plan (49₹ / Month)**
+  • ♾️ **Unlimited Downloads:** No more 500MB daily limits or 100MB file blocks!
+  • 🚀 **Maximum Speed:** Uncap your bandwidth with parallel chunking.
+
+👑 **Gold Plan (69₹ / Month)**
+  • ♾️ **Unlimited Everything:** Zero byte boundaries.
+  • 📚 **Bulk Array Cloning:** Access the legendary `/dump` and `/album` commands to scrape entire channels at once.
+  • 🔕 **Ghost Mode:** Access `/silent` logging.
+
+👉 **To buy premium, contact @okokbye**
+_Once paid, you will receive a key. Use `/redeem YOUR_KEY` to instantly upgrade!_
+"""
+
+@app.on_message(filters.command("buypremium") & filters.private)
+async def buy_premium_handler(client: Client, message: Message):
+    await message.reply_text(BUY_PREMIUM_PITCH)
+
 import string
 import random
 
@@ -536,8 +558,8 @@ async def plan_handler(client: Client, message: Message):
     txt = f"💎 **Your Current Subscription:**\n\n**Tier:** `{tier}`\n"
     if tier == "Free":
         used_mb = round(used / (1024*1024), 2)
-        txt += f"**Daily Usage:** `{used_mb}MB / 500MB`\n"
-        txt += "\n_Upgrade to Silver (49₹) or Gold (69₹) for Unlimited Downloads!_"
+        txt += f"**Daily Usage:** `{used_mb}MB / 500MB`\n\n"
+        txt += BUY_PREMIUM_PITCH
     else:
         txt += f"**Status:** `Unlimited Downloads Active`\n"
         if expiry:
@@ -1315,11 +1337,10 @@ async def process_download_job(job: dict):
             allowed, reason = database.check_and_update_limit(user_id, file_size_bytes)
             if not allowed:
                 await status_msg.edit_text(
-                    f"🚫 **DOWNLOAD REJECTED**\n\n{reason}\n\n"
-                    f"💎 **Upgrade your Plan:**\n"
-                    f"• **Silver Plan (49₹/m):** Unlimited single-link downloads.\n"
-                    f"• **Gold Plan (69₹/m):** Unlimited bulk `/dump` and `/album` array cloning!\n\n"
-                    f"Contact Admin to buy a key, then type `/redeem KEY`"
+                    f"🚫 **DOWNLOAD REJECTED**\n\n"
+                    f"❌ Reason: **{reason}**\n\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"{BUY_PREMIUM_PITCH}"
                 )
                 continue
             # -------------------------
