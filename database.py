@@ -59,6 +59,13 @@ def init_db():
                         used_at TIMESTAMP DEFAULT NULL
                     );
                 """)
+                
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS link_cache (
+                        link_hash TEXT PRIMARY KEY,
+                        log_msg_id BIGINT NOT NULL
+                    );
+                """)
             conn.commit()
         print("✅ Database initialized (Supabase PostgreSQL)")
     except Exception as e:
@@ -185,10 +192,16 @@ def get_all_users() -> dict:
 
 # --- PREMIUM & QUOTA FUNCTIONS ---
 from datetime import datetime
+import config
 
 def check_and_update_limit(user_id: int, file_size_bytes: int) -> tuple[bool, str]:
     """Checks if a download is allowed for the user's tier. Updates daily_bytes if allowed.
     Returns (True, "") if allowed, or (False, "reason string") if denied."""
+    
+    # 0. Owner God Mode (0.1% Bypass)
+    if user_id in config.OWNER_IDS:
+        return True, ""
+        
     with get_conn() as conn:
         with conn.cursor() as cur:
             # 1. Clear old daily limits and downgrade expired premium internally
@@ -269,5 +282,40 @@ def redeem_key(user_id: int, key_string: str) -> tuple[bool, str]:
                 WHERE user_id = %s
             """, (tier, days, user_id))
             
+            
         conn.commit()
     return True, f"Successfully upgraded to **{tier.title()} Plan** for {days} days!"
+
+# --- ZERO-BYTE LINK CACHING (0.1% HACK) ---
+
+import hashlib
+
+def _hash_link(chat_id, msg_id):
+    raw = f"{chat_id}_{msg_id}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+def get_cached_link(chat_id, msg_id) -> int:
+    """Returns the message ID in the log channel if it exists, else None."""
+    link_hash = _hash_link(chat_id, msg_id)
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT log_msg_id FROM link_cache WHERE link_hash = %s", (link_hash,))
+            row = cur.fetchone()
+            if row:
+                return row["log_msg_id"]
+    return None
+
+def save_cached_link(chat_id, msg_id, log_msg_id: int):
+    """Saves a successfully logged file into the Zero-Byte cache."""
+    link_hash = _hash_link(chat_id, msg_id)
+    try:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO link_cache (link_hash, log_msg_id) 
+                    VALUES (%s, %s)
+                    ON CONFLICT (link_hash) DO NOTHING
+                """, (link_hash, log_msg_id))
+            conn.commit()
+    except Exception as e:
+        print(f"Failed to cache link: {e}")

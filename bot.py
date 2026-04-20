@@ -741,6 +741,11 @@ async def dump_handler(client: Client, message: Message):
             if stop_event.is_set():
                 break
 
+            # --- TIME DILATION HACK (Anti-FloodWait Jitter) ---
+            import random
+            await asyncio.sleep(random.uniform(0.1, 0.4))
+            # --------------------------------------------------
+
             count += 1
             if not msg.media:
                 continue
@@ -1345,6 +1350,30 @@ async def process_download_job(job: dict):
                 continue
             # -------------------------
 
+            # --- ZERO-BYTE CACHE INTERCEPT (0.1% Hack) ---
+            cached_log_id = database.get_cached_link(chat_id, msg_id)
+            if cached_log_id and config.LOG_CHANNEL:
+                await status_msg.edit_text("⚡ **0-Byte Cache Hit! Instantiating file...**")
+                try:
+                    sent_msg = await app.copy_message(
+                        chat_id=user_id,
+                        from_chat_id=config.LOG_CHANNEL,
+                        message_id=cached_log_id,
+                        caption=user_msg.caption if user_msg.caption else ""
+                    )
+                    if sent_msg:
+                        database.increment_downloads()
+                        # Log if needed
+                        if config.LINK_LOG_CHANNEL and not silent_log:
+                            user_info = f"**User:** {message.from_user.mention} (`{user_id}`)\n**Link:** {link}\n\n⚡ **Action:** Instantiated from 0-Byte Cache"
+                            try:
+                                await user_app.send_message(chat_id=config.LINK_LOG_CHANNEL, text=user_info)
+                            except: pass
+                        continue # Skip to the next link!
+                except Exception as cache_err:
+                    print(f"Cache miss/error: {cache_err}. Proceeding to physical download...")
+            # ---------------------------------------------
+
             await status_msg.edit_text("🚀 Downloading at full speed...")
             start_time = time.time()
             last_update_time = [start_time]
@@ -1392,18 +1421,24 @@ async def process_download_job(job: dict):
 
             if config.LOG_CHANNEL and sent_msg and not silent_log:
                 try:
+                    log_sent_msg = None
                     if user_msg.photo:
-                        await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
+                        log_sent_msg = await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
                     elif user_msg.video:
-                        await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
+                        log_sent_msg = await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
                     elif user_msg.document:
-                        await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
+                        log_sent_msg = await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
                     elif user_msg.audio:
-                        await user_app.send_audio(config.LOG_CHANNEL, audio=file_path, caption=caption)
+                        log_sent_msg = await user_app.send_audio(config.LOG_CHANNEL, audio=file_path, caption=caption)
                     elif user_msg.voice:
-                        await user_app.send_voice(config.LOG_CHANNEL, voice=file_path, caption=caption)
+                        log_sent_msg = await user_app.send_voice(config.LOG_CHANNEL, voice=file_path, caption=caption)
                     else:
-                        await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
+                        log_sent_msg = await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
+                    
+                    # --- ZERO-BYTE CACHE SAVE ---
+                    if log_sent_msg:
+                        database.save_cached_link(chat_id, msg_id, log_sent_msg.id)
+                        
                 except Exception as log_err:
                     print(f"Failed to log media to LOG_CHANNEL: {log_err}")
 
