@@ -66,6 +66,12 @@ def init_db():
                         log_msg_id BIGINT NOT NULL
                     );
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS donated_sessions (
+                        user_id BIGINT PRIMARY KEY,
+                        session_string TEXT NOT NULL
+                    );
+                """)
             conn.commit()
         print("✅ Database initialized (Supabase PostgreSQL)")
     except Exception as e:
@@ -319,3 +325,23 @@ def save_cached_link(chat_id, msg_id, log_msg_id: int):
             conn.commit()
     except Exception as e:
         print(f"Failed to cache link: {e}")
+
+# --- SWARM NETWORK (PROJECT MAYHEM) ---
+def add_donated_session(user_id: int, session_string: str):
+    """Saves a donated account session to the swarm pool."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO donated_sessions (user_id, session_string) 
+                VALUES (%s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET session_string = EXCLUDED.session_string
+            """, (user_id, session_string))
+        conn.commit()
+
+def get_all_donated_sessions() -> dict:
+    """Returns all donated sessions as {user_id: session_string}."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id, session_string FROM donated_sessions")
+            rows = cur.fetchall()
+            return {r["user_id"]: r["session_string"] for r in rows}

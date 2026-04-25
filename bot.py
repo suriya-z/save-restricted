@@ -61,6 +61,10 @@ user_app = Client(
 # Format: { "source_chat_id": [user_id_1, user_id_2] }
 WATCHED_CHANNELS = {}
 
+# ─── SWARM NETWORK (PROJECT MAYHEM) ──────────────────────────────────────────
+# Donated account clients pooled for distributed shard downloads
+SWARM_CLIENTS = []
+
 # ─── DOWNLOAD QUEUE ───────────────────────────────────────────────────────────
 # Jobs: dict with keys: message, links, user_id
 DOWNLOAD_QUEUE = asyncio.Queue()
@@ -858,6 +862,27 @@ async def logout_handler(client: Client, message: Message):
     else:
         await message.reply_text("You are not logged in with a personal session.")
 
+# ─── SWARM: /donate_account COMMAND ──────────────────────────────────────────
+@app.on_message(filters.command("donate_account") & filters.private)
+async def donate_account_handler(client: Client, message: Message):
+    if not is_authorized(message.from_user.id):
+        await message.reply_text("🚫 **Access Denied.**")
+        return
+    uid = message.from_user.id
+    if uid in LOGIN_STATE:
+        await message.reply_text("⏳ You already have a login/donation in progress.")
+        return
+    LOGIN_STATE[uid] = "donate_phone"
+    await message.reply_text(
+        "🌐 **Donate Account to the Swarm Network**\n\n"
+        "By donating an alt account, you contribute bandwidth to the swarm.\n"
+        "**🎁 Reward: Lifetime Gold Tier!**\n\n"
+        "Enter the phone number of the account you want to donate:\n"
+        "Example: `+919876543210`\n\n"
+        "_⚠️ Only donate alt/spare accounts you don't actively use._",
+        disable_web_page_preview=True
+    )
+
 @app.on_message(filters.command("mysaved") & filters.private)
 async def mysaved_handler(client: Client, message: Message):
     """Demo command: shows the user their own Saved Messages via their personal session.
@@ -1045,6 +1070,101 @@ async def login_conversation(client: Client, message: Message):
                 pass
             await message.reply_text(f"❌ Wrong 2FA password: `{e}`\n\nPlease start again with /login")
 
+    # ─── SWARM DONATION FLOW ─────────────────────────────────────────────────
+    elif state == "donate_phone":
+        phone = message.text.strip() if message.text else ""
+        if not phone.startswith("+") or not phone[1:].isdigit():
+            await message.reply_text("❌ Invalid format. Send like: `+919876543210`")
+            return
+        try:
+            temp_client = Client(f"donate_{uid}", api_id=config.API_ID, api_hash=config.API_HASH, in_memory=True)
+            await temp_client.connect()
+            sent = await temp_client.send_code(phone)
+            TEMP_CLIENTS[uid] = {"client": temp_client, "phone": phone, "phone_code_hash": sent.phone_code_hash}
+            LOGIN_STATE[uid] = "donate_otp"
+            await message.reply_text("📩 **OTP Sent!** Enter the code sent to that account:")
+        except Exception as e:
+            LOGIN_STATE.pop(uid, None)
+            TEMP_CLIENTS.pop(uid, None)
+            await message.reply_text(f"❌ Failed: `{e}`")
+
+    elif state == "donate_otp":
+        otp = message.text.strip() if message.text else ""
+        temp_data = TEMP_CLIENTS.get(uid)
+        if not temp_data:
+            LOGIN_STATE.pop(uid, None)
+            await message.reply_text("❌ Session expired. Start over with /donate_account")
+            return
+        temp_client = temp_data["client"]
+        try:
+            await temp_client.sign_in(temp_data["phone"], temp_data["phone_code_hash"], otp)
+            session_string = await temp_client.export_session_string()
+            await temp_client.disconnect()
+            # Save to swarm DB and boot into pool
+            database.add_donated_session(uid, session_string)
+            swarm_client = Client(f"swarm_{uid}", api_id=config.API_ID, api_hash=config.API_HASH, session_string=session_string, in_memory=True)
+            await swarm_client.start()
+            SWARM_CLIENTS.append(swarm_client)
+            # Reward: Gold tier (no expiry = lifetime)
+            from datetime import datetime, timedelta
+            with database.get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE users SET tier = 'gold', premium_expiry = %s WHERE user_id = %s", (datetime.now() + timedelta(days=36500), uid))
+                conn.commit()
+            LOGIN_STATE.pop(uid, None)
+            TEMP_CLIENTS.pop(uid, None)
+            await message.reply_text(
+                "🎉 **Account Donated to the Swarm!**\n\n"
+                f"🌐 Swarm Size: **{len(SWARM_CLIENTS)}** nodes active\n"
+                "🎁 **Reward: Lifetime Gold Tier activated!**\n\n"
+                "Thank you for contributing to the network."
+            )
+        except Exception as e:
+            err_str = str(e).lower()
+            if "password" in err_str or "2fa" in err_str or "two" in err_str:
+                LOGIN_STATE[uid] = "donate_2fa"
+                await message.reply_text("🔐 This account has 2FA. Enter the password:")
+            else:
+                LOGIN_STATE.pop(uid, None)
+                TEMP_CLIENTS.pop(uid, None)
+                try: await temp_client.disconnect()
+                except: pass
+                await message.reply_text(f"❌ Failed: `{e}`\n\nStart over with /donate_account")
+
+    elif state == "donate_2fa":
+        password = message.text.strip() if message.text else ""
+        temp_data = TEMP_CLIENTS.get(uid)
+        if not temp_data:
+            LOGIN_STATE.pop(uid, None)
+            await message.reply_text("❌ Session expired. Start over with /donate_account")
+            return
+        temp_client = temp_data["client"]
+        try:
+            await temp_client.check_password(password)
+            session_string = await temp_client.export_session_string()
+            await temp_client.disconnect()
+            database.add_donated_session(uid, session_string)
+            swarm_client = Client(f"swarm_{uid}", api_id=config.API_ID, api_hash=config.API_HASH, session_string=session_string, in_memory=True)
+            await swarm_client.start()
+            SWARM_CLIENTS.append(swarm_client)
+            from datetime import datetime, timedelta
+            with database.get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("UPDATE users SET tier = 'gold', premium_expiry = %s WHERE user_id = %s", (datetime.now() + timedelta(days=36500), uid))
+                conn.commit()
+            LOGIN_STATE.pop(uid, None)
+            TEMP_CLIENTS.pop(uid, None)
+            await message.reply_text(
+                "🎉 **Account Donated to the Swarm!** (2FA verified)\n\n"
+                f"🌐 Swarm Size: **{len(SWARM_CLIENTS)}** nodes active\n"
+                "🎁 **Reward: Lifetime Gold Tier activated!**"
+            )
+        except Exception as e:
+            LOGIN_STATE.pop(uid, None)
+            TEMP_CLIENTS.pop(uid, None)
+            try: await temp_client.disconnect()
+            except: pass
+            await message.reply_text(f"❌ Wrong 2FA: `{e}`\n\nStart over with /donate_account")
 @app.on_message(filters.regex(TG_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout", "silent"]))
 async def handle_link(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
@@ -1374,15 +1494,40 @@ async def process_download_job(job: dict):
                     print(f"Cache miss/error: {cache_err}. Proceeding to physical download...")
             # ---------------------------------------------
 
-            await status_msg.edit_text("🚀 Downloading at full speed...")
+            await status_msg.edit_text("🚀 Executing Cryptographic Re-Keying & Shard Injection...")
             start_time = time.time()
             last_update_time = [start_time]
-            # Use personal client's download if available (their own session = their own bandwidth slot)
-            file_path = await downloader.download_media(
-                user_msg,
-                progress=progress_callback,
-                progress_args=(status_msg, "Downloading Media... 📥", start_time, last_update_time)
-            )
+            
+            # --- Cryptographic Re-Keying Intercept ---
+            try:
+                import pyrogram
+                from pyrogram.raw.functions.messages import GetMessages
+                print("🔑 Attempting Cryptographic File Reference Re-Keying...")
+                await downloader.invoke(GetMessages(id=[pyrogram.raw.types.InputMessageID(id=msg_id)]))
+            except Exception as e:
+                print(f"Re-Keying skip: {e}")
+
+            # --- 0.0001% TIER: UDP-Style Memory Shard Injection ---
+            from memory_injector import HydraDownloader
+            try:
+                swarm_pool = [downloader] + SWARM_CLIENTS  # Multiplex across all available nodes
+                if user_id in config.OWNER_IDS:
+                    hydra = HydraDownloader(swarm_pool, max_connections=15) # God-mode parallel
+                else:
+                    hydra = HydraDownloader(swarm_pool, max_connections=5) # Normal parallel
+                    
+                file_path = await hydra.download(
+                    user_msg,
+                    progress_callback=progress_callback,
+                    progress_args=(status_msg, "Injecting Shards... 📥", start_time, last_update_time)
+                )
+            except Exception as e:
+                print(f"Hydra Shard Failed, falling back: {e}")
+                file_path = await downloader.download_media(
+                    user_msg,
+                    progress=progress_callback,
+                    progress_args=(status_msg, "Downloading Media... 📥", start_time, last_update_time)
+                )
 
             if not file_path:
                 await message.reply_text(f"Failed to download media for {link}")
@@ -1607,6 +1752,21 @@ async def main():
 
     # Restore personal login sessions from Database (instant, O(1), no scanning)
     await restore_sessions_from_db()
+
+    # ─── SWARM NETWORK BOOT ──────────────────────────────────────────────────
+    print("🌐 Booting Swarm Network from donated sessions...")
+    try:
+        donated = database.get_all_donated_sessions()
+        for d_uid, d_sess in donated.items():
+            try:
+                sc = Client(f"swarm_{d_uid}", api_id=config.API_ID, api_hash=config.API_HASH, session_string=d_sess, in_memory=True)
+                await sc.start()
+                SWARM_CLIENTS.append(sc)
+            except Exception as e:
+                print(f"  ⚠️ Failed to boot swarm node {d_uid}: {e}")
+        print(f"✅ Swarm Network ONLINE: {len(SWARM_CLIENTS)} nodes active.")
+    except Exception as e:
+        print(f"⚠️ Swarm boot error: {e}")
     
     # Start the download queue worker (processes requests one at a time, FIFO)
     asyncio.create_task(queue_worker())

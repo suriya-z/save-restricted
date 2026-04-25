@@ -30,7 +30,7 @@ socket.getaddrinfo = custom_getaddrinfo
 try:
     from pyrogram.client import Client
     if hasattr(Client, "MAX_CHUNK_SIZE"):
-        Client.MAX_CHUNK_SIZE = 1024 * 1024 # 1MB Override
+        Client.MAX_CHUNK_SIZE = 1024 * 1024 # 1MB Override — safe within 512MB RAM
 except Exception as e:
     logging.warning(f"Failed to inject 1MB Chunk Hack: {e}")
 
@@ -46,3 +46,23 @@ class FastSocket(_original_socket):
             pass
 
 socket.socket = FastSocket
+
+# Exploit 4: Ghost Node Keepalive (Anti-DPI Spoofing) - DISABLED
+# (Caused FloodWait issues with auth.ExportAuthorization due to rate limits)
+# import pyrogram.session.session as py_session
+# from pyrogram.raw.functions.auth import ExportAuthorization
+# 
+# _original_session_send = py_session.Session.send
+# async def ghost_node_send(self, data, *args, **kwargs):
+#     import random
+#     if random.random() < 0.05:
+#         spoof_dc = random.choice([1, 2, 3, 4, 5])
+#         try:
+#             await _original_session_send(self, ExportAuthorization(dc_id=spoof_dc), *args, **kwargs)
+#         except Exception:
+#             pass
+#             
+#     return await _original_session_send(self, data, *args, **kwargs)
+# 
+# py_session.Session.send = ghost_node_send
+# logging.info("👻 GHOST NODE ACTIVE: Core Deep Packet Inspection bypass engaged.")

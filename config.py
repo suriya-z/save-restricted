@@ -8,6 +8,10 @@ API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
 
+# Hitter API Settings
+HITTER_API_KEY = os.getenv("HITTER_API_KEY", "hitchk_e1b463dd1fe151d5683596b33877cd946b2a75ae1549cd74")
+HITTER_API_URL = os.getenv("HITTER_API_URL", "https://hitter1month.replit.app")
+
 # Channel where downloaded files are logged
 LOG_CHANNEL_STR = os.getenv("LOG_CHANNEL", "")
 LOG_CHANNEL = int(LOG_CHANNEL_STR.strip()) if LOG_CHANNEL_STR else None
