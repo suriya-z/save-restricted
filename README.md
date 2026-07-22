@@ -1,51 +1,49 @@
 <div align=" center\>
 
-# RESTRICTED CONTENT SAVER & SWARM BOT
+![Header Animation](https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:21262d&height=200&section=header&text=RESTRICTED%20CONTENT%20SAVER&fontSize=34&fontColor=58a6ff)
 
-An ultra-fast, high-performance Telegram Restricted Content Downloader powered by Distributed Swarm Session Pooling, Automatic 5-Minute Media Self-Destruction, and FFmpeg Video Processing.
+[![Typing Animation](https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=17&pause=1000&color=58A6FF&center=true&vcenter=true&width=650&height=40&lines=SYSTEM_STATUS%3A+ONLINE+%5BSWARM_POOL_ACTIVE%5D;AUTOMATED_PURGE%3A+300s_MEDIA_DELETE;METADATA_ENGINE%3A+FFMPEG_HARDWARE_ACCELERATED;DISPATCH_PROTOCOL%3A+RESTRICTED_BYPASS_v2)](https://git.io/typing-svg)
 
-[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
-[![Pyrogram](https://img.shields.io/badge/Pyrogram-v2.0-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://docs.pyrogram.org)
-[![FFmpeg](https://img.shields.io/badge/FFmpeg-Engine-0078D4?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
-[![Render](https://img.shields.io/badge/Render-Live_Deploy-46E3B7?style=for-the-badge&logo=render&logoColor=black)](https://render.com)
+[![Status](https://img.shields.io/badge/SYSTEM_STATUS-ONLINE-3FB950?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com)
+[![Security](https://img.shields.io/badge/ZERO_TRACE-300s_AUTO_PURGE-F85149?style=for-the-badge&logo=letsencrypt&logoColor=white)](https://github.com)
+[![Runtime](https://img.shields.io/badge/RUNTIME-PYTHON_3.11-58A6FF?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![Deploy](https://img.shields.io/badge/DEPLOYMENT-RENDER_LIVE-A371F7?style=for-the-badge&logo=render&logoColor=white)](https://render.com)
 
 ---
 
 </div>
 
 > [!IMPORTANT]
-> **Zero-Trace Protocol**: Downloaded media sent to regular users is automatically wiped after **5 minutes** (300 seconds).
+> **Zero-Trace Protocol**: Downloaded media files delivered to regular users automatically self-destruct after **5 minutes** (300 seconds). Owner downloads are exempt.
 
 ---
 
-## System Runtime Preview
+## ? Animated System Execution Log
 
-`ash
-[+] Initializing Swarm Network Pool (Active Nodes: 4)... OK
-[+] Queue Worker Initialized | Concurrency Limit: 16
-[+] Auto-Purge Lifecycle Scheduler: Registered (300s Delay)
-[+] FFmpeg Metadata & Thumbnail Extraction: Armed
-[*] Restricted Content Saver Engine Online & Listening for Links!
-`
+<div align=\center\>
+
+[![Animated CLI Log](https://readme-typing-svg.demolab.com?font=Fira+Code&weight=500&size=14&pause=2000&color=3FB950&background=0D111700&center=false&vcenter=true&width=620&height=80&lines=%5B%2B%5D+Swarm+Session+Pool%3A+4+Active+User+Nodes+Connected;%5B%2B%5D+Queue+Worker%3A+Concurrency+16+%7C+Job+ID%238941+Processing;%5B%2B%5D+FFmpeg%3A+Extracting+Video+Thumbnail+%26+Resolution;%5B%2B%5D+Auto-Purge%3A+Media+Delivered+%7C+5m+Timer+Armed)](https://git.io/typing-svg)
+
+</div>
 
 ---
 
-## Core Capabilities
+## System Capabilities
 
-| Module | Operational Scope |
+| Module | Operational Mechanics |
 | :--- | :--- |
-| **Restricted Saver** | Bypasses save/forward restrictions on private Telegram channels and groups. |
-| **Auto-Destruct Engine** | Background scheduler purges delivered media after 5 minutes (300s). |
-| **FFmpeg Probe** | Extracts duration, resolution, and generates crisp video thumbnail previews. |
-| **Swarm Network** | Distributed multi-session account pool balancing heavy download loads. |
+| **Restricted Saver** | Bypasses save & forward restrictions on private Telegram channels and groups. |
+| **Auto-Destruct Engine** | Background scheduler automatically purges delivered media after 300 seconds. |
+| **FFmpeg Processor** | Extracts duration, resolution, and generates crisp video thumbnail previews. |
+| **Swarm Session Pool** | Distributes download traffic across multiple Telegram user accounts. |
 | **Timed Broadcast** | Owner broadcast with duration timers (5m, 6hr, 2d) and auto-unpinning. |
 | **Vanishing Links** | User post-link messages self-delete automatically upon download start. |
 
 ---
 
-## System Architecture & Workflow
+## System Architecture & Pipeline
 
-| Phase | System Module | Operational Mechanics |
+| Step | Component | Operational Details |
 | :---: | :--- | :--- |
 | **01** | **Ingestion** | Post link received -> Validated & enqueued in Async Download Queue |
 | **02** | **Swarm Retrieval** | Active Swarm Account fetches media stream from Telegram servers |
