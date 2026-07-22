@@ -1,6 +1,6 @@
 <div align=" center\>
 
-# ? RESTRICTED CONTENT SAVER & SWARM BOT
+# RESTRICTED CONTENT SAVER & SWARM BOT
 
 An ultra-fast, high-performance Telegram Restricted Content Saver powered by Distributed Swarm Session Pooling, Automatic 5-Minute Media Self-Destruction, and FFmpeg Video Processing.
 
@@ -18,7 +18,7 @@ An ultra-fast, high-performance Telegram Restricted Content Saver powered by Dis
 
 ---
 
-## ? Core Capabilities
+## Core Capabilities
 
 | Core Module | Functionality & Impact |
 | :--- | :--- |
@@ -31,35 +31,35 @@ An ultra-fast, high-performance Telegram Restricted Content Saver powered by Dis
 
 ---
 
-## ?? System Architecture
+## System Architecture
 
 `mermaid
 graph LR
  subgraph Client Layer
- A[?? User Request] --> B[?? Bot Client]
+ A[User Request] --> B[Bot Client]
  end
  
  subgraph Core Engine
- B --> C[?? Job Queue]
- C --> D[? Swarm User Pool]
- D --> E[?? Telegram Data Centers]
- E --> F[?? Local Temp Storage]
- F --> G[?? FFmpeg Metadata Engine]
+ B --> C[Job Queue]
+ C --> D[Swarm User Pool]
+ D --> E[Telegram Data Centers]
+ E --> F[Local Temp Storage]
+ F --> G[FFmpeg Metadata Engine]
  end
  
  subgraph Delivery & Lifecycle
- G --> H[?? Delivered Media]
- H --> I[? 5-Min Purge Timer]
- I --> J[??? Auto Self-Destruct]
+ G --> H[Delivered Media]
+ H --> I[5-Min Purge Timer]
+ I --> J[Auto Self-Destruct]
  end
 `
 
 ---
 
-## ?? Command Center
+## Command Center
 
 <details>
-<summary><b>?? Owner & Admin Control Center (Click to expand)</b></summary>
+<summary><b>Owner & Admin Control Center (Click to expand)</b></summary>
 
 <br>
 
@@ -77,7 +77,7 @@ graph LR
 </details>
 
 <details>
-<summary><b>?? Standard User Commands (Click to expand)</b></summary>
+<summary><b>Standard User Commands (Click to expand)</b></summary>
 
 <br>
 
@@ -86,8 +86,8 @@ graph LR
 | /start | /start | Start bot & view quick-start instructions |
 | /myplan | /myplan | View subscription plan tier & remaining quota |
 | /redeem | /redeem <key> | Redeem premium subscription key |
-| /login | /login | Connect personal Telegram account for private channel access |
-| /logout | /logout | Remove personal Telegram account |
+| /login | /login | Connect personal Telegram session for private channel access |
+| /logout | /logout | Remove personal Telegram session |
 | /mysaved | /mysaved | Access saved download history |
 | /dump | /dump <link> | Download range/batch of posts |
 | /album | /album <link> | Download grouped media album |
@@ -97,7 +97,7 @@ graph LR
 
 ---
 
-## ?? Environment Configuration
+## Environment Configuration
 
 `ini
 API_ID=1234567
@@ -111,7 +111,7 @@ PORT=10000 # Optional: web server health check port
 
 ---
 
-## ?? One-Click Deploy
+## One-Click Deploy
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com)
 
