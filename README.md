@@ -2,7 +2,7 @@
 
 # RESTRICTED CONTENT SAVER & SWARM BOT
 
-An ultra-fast, high-performance Telegram Restricted Content Saver powered by Distributed Swarm Session Pooling, Automatic 5-Minute Media Self-Destruction, and FFmpeg Video Processing.
+An ultra-fast, high-performance Telegram Restricted Content Downloader powered by Distributed Swarm Session Pooling, Automatic 5-Minute Media Self-Destruction, and FFmpeg Video Processing.
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
 [![Pyrogram](https://img.shields.io/badge/Pyrogram-v2.0-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://docs.pyrogram.org)
@@ -14,109 +14,84 @@ An ultra-fast, high-performance Telegram Restricted Content Saver powered by Dis
 </div>
 
 > [!IMPORTANT]
-> **Privacy First**: All downloaded media files delivered to regular users are automatically purged after **5 minutes** (300 seconds).
+> **Privacy Policy**: All media files downloaded by regular users automatically self-destruct after **5 minutes** (300 seconds). Owner downloads are exempt.
 
 ---
 
 ## Core Capabilities
 
-| Core Module | Functionality & Impact |
+| Capability | Description |
 | :--- | :--- |
-| **Bypass Engine** | Saves videos, audio, photos, & documents from restricted private channels where saving or forwarding is disabled. |
-| **Auto-Destruct** | Automated 5-minute background timer purges delivered media to maintain chat privacy and conserve storage. |
-| **FFmpeg Metadata** | Automatically extracts resolution, video duration, and generates crisp video thumbnails. |
-| **Swarm Pool** | Multi-session user account pooling to balance download traffic and prevent rate limits. |
-| **Timed Broadcast** | Owner broadcast tool supporting timed message pins and auto-unpinning (5m, 6hr, 2d). |
-| **Vanishing Links** | User post-link messages vanish automatically as soon as the download job begins. |
+| **Restricted Saver** | Downloads restricted videos, photos, documents & audio from private channels/groups. |
+| **5-Min Purge** | Background scheduler automatically purges delivered media after 5 minutes. |
+| **FFmpeg Processor** | Auto-extracts video duration, width, height, and generates clean video thumbnail previews. |
+| **Swarm Session Pool** | Distributes download traffic across multiple Telegram user accounts to eliminate rate limits. |
+| **Timed Broadcast** | Owner broadcast with duration timers (5m, 6hr, 2d) and automated unpinning. |
+| **Auto-Vanishing Links** | User link messages vanish as soon as the download task begins. |
 
 ---
 
-## System Architecture
+## System Workflow
 
-`mermaid
-graph LR
- subgraph Client Layer
- A[User Request] --> B[Bot Client]
- end
- 
- subgraph Core Engine
- B --> C[Job Queue]
- C --> D[Swarm User Pool]
- D --> E[Telegram Data Centers]
- E --> F[Local Temp Storage]
- F --> G[FFmpeg Metadata Engine]
- end
- 
- subgraph Delivery & Lifecycle
- G --> H[Delivered Media]
- H --> I[5-Min Purge Timer]
- I --> J[Auto Self-Destruct]
- end
+`
+ [ User Request ] ??? [ Bot Client ] ??? [ Download Queue ] ??? [ Swarm User Pool ]
+ ?
+ [ Auto-Destruct (5m) ] ??? [ Delivered Media ] ??? [ FFmpeg Engine ] ??
 `
 
 ---
 
-## Command Center
+## Command Reference
 
-<details>
-<summary><b>Owner & Admin Control Center (Click to expand)</b></summary>
+### Owner Commands (is_admin)
 
-<br>
+| Command | Description |
+| :--- | :--- |
+| /cmds | Display owner dashboard & command menu |
+| /broadcast [duration] <text> | Broadcast message to all users & auto-pin (5m, 6hr, 2d) |
+| /stats | View system resource usage, database metrics & download counts |
+| /users | List all registered user IDs |
+| /ban <user_id> | Ban user from accessing the bot |
+| /unban <user_id> | Restore user access |
+| /genkey <tier> | Generate premium redeem license key |
+| /donate_account | Add Telegram account session string to Swarm Pool |
 
-| Command | Syntax | Purpose |
-| :--- | :--- | :--- |
-| /cmds | /cmds | Display owner dashboard & command menu |
-| /broadcast | /broadcast [duration] <text> | Broadcast message to all users & auto-pin (e.g. 5m, 2d) |
-| /stats | /stats | Monitor server RAM, CPU, database & total download metrics |
-| /users | /users | List registered user IDs |
-| /ban | /ban <user_id> | Restrict user access |
-| /unban | /unban <user_id> | Restore user access |
-| /genkey | /genkey <tier> | Generate premium redeem license key |
-| /donate_account | /donate_account | Add session string to Swarm Pool |
+### User Commands
 
-</details>
-
-<details>
-<summary><b>Standard User Commands (Click to expand)</b></summary>
-
-<br>
-
-| Command | Syntax | Purpose |
-| :--- | :--- | :--- |
-| /start | /start | Start bot & view quick-start instructions |
-| /myplan | /myplan | View subscription plan tier & remaining quota |
-| /redeem | /redeem <key> | Redeem premium subscription key |
-| /login | /login | Connect personal Telegram session for private channel access |
-| /logout | /logout | Remove personal Telegram session |
-| /mysaved | /mysaved | Access saved download history |
-| /dump | /dump <link> | Download range/batch of posts |
-| /album | /album <link> | Download grouped media album |
-| /watch | /watch <link> | Enable 24/7 channel auto-forwarder |
-
-</details>
+| Command | Description |
+| :--- | :--- |
+| /start | Start bot & view usage guide |
+| /myplan | View current subscription plan & remaining quota |
+| /redeem <key> | Redeem premium key |
+| /login | Connect personal Telegram session for private channels |
+| /logout | Disconnect personal Telegram session |
+| /mysaved | Access saved download history |
+| /dump <link> | Download range/batch of posts |
+| /album <link> | Download grouped media album |
+| /watch <link> | Auto-forward new channel posts 24/7 |
 
 ---
 
-## Environment Configuration
+## Environment Variables
 
-`ini
-API_ID=1234567
-API_HASH=your_api_hash_here
-BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyZ
-SESSION_STRING=your_pyrogram_v2_user_session_string
-OWNER_ID=987654321
-DATABASE_URL=mongodb+srv://... # Optional: defaults to local JSON storage
-PORT=10000 # Optional: web server health check port
-`
+| Variable | Required | Description |
+| :--- | :---: | :--- |
+| API_ID | Yes | Telegram API ID from [my.telegram.org](https://my.telegram.org) |
+| API_HASH | Yes | Telegram API Hash from [my.telegram.org](https://my.telegram.org) |
+| BOT_TOKEN | Yes | Bot Token from [@BotFather](https://t.me/BotFather) |
+| SESSION_STRING | Yes | Primary Pyrogram v2 User Session String |
+| OWNER_ID | Yes | Numeric User ID of the Bot Owner |
+| DATABASE_URL | No | MongoDB URL (falls back to local JSON database) |
+| PORT | No | Web server port for health checks (10000) |
 
 ---
 
-## One-Click Deploy
+## One-Click Deployment
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com)
 
 1. Fork this repository.
-2. Create a new **Web Service** on Render.
+2. Create a new **Web Service** on Render connected to your repo.
 3. Build Command: pip install -r requirements.txt
 4. Start Command: python bot.py
 5. Configure Environment Variables.
@@ -125,6 +100,6 @@ PORT=10000 # Optional: web server health check port
 
 <div align=\center\>
 
-Built for speed, efficiency, and privacy.
+Built for high performance, reliability, and privacy.
 
 </div>
