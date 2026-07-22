@@ -1,12 +1,13 @@
 <div align=" center\>
 
-![Header](https://capsule-render.vercel.app/api?type=rect&color=0:090d16,50:0f172a,100:020617&height=160&section=header&text=RESTRICTED%20CONTENT%20SAVER&fontSize=32&fontColor=38bdf8)
+# RESTRICTED CONTENT SAVER & SWARM BOT
 
-[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&size=18&pause=1000&color=38BDF8&center=true&vcenter=true&width=650&height=40&lines=%3E+INITIALIZING+PROTOCOL%3A+RESTRICTED_SAVER_v2.0;%3E+SWARM_NETWORK%3A+ACTIVE+%5BMULTI-SESSION+NODE+POOL%5D;%3E+STORAGE_POLICY%3A+300s+AUTO-PURGE+ENABLED;%3E+MEDIA_ENGINE%3A+FFMPEG_HARDWARE_ACCELERATED)](https://git.io/typing-svg)
+An ultra-fast, high-performance Telegram Restricted Content Downloader powered by Distributed Swarm Session Pooling, Automatic 5-Minute Media Self-Destruction, and FFmpeg Video Processing.
 
-![Status](https://img.shields.io/badge/SYSTEM_STATUS-ONLINE-10B981?style=for-the-badge&logo=prometheus&logoColor=white)
-![Security](https://img.shields.io/badge/AUTO_PURGE-5_MINUTES-EF4444?style=for-the-badge&logo=shield&logoColor=white)
-![Engine](https://img.shields.io/badge/ENGINE-PYROGRAM_v2-2563EB?style=for-the-badge&logo=telegram&logoColor=white)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
+[![Pyrogram](https://img.shields.io/badge/Pyrogram-v2.0-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://docs.pyrogram.org)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-Engine-0078D4?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
+[![Render](https://img.shields.io/badge/Render-Live_Deploy-46E3B7?style=for-the-badge&logo=render&logoColor=black)](https://render.com)
 
 ---
 
@@ -17,21 +18,19 @@
 
 ---
 
-## ?? System Runtime Preview
+## System Runtime Preview
 
 `ash
-???(operator?swarm)-[~/save-restricted]
-??$ python bot.py --swarm-mode --auto-purge 300
 [+] Initializing Swarm Network Pool (Active Nodes: 4)... OK
 [+] Queue Worker Initialized | Concurrency Limit: 16
 [+] Auto-Purge Lifecycle Scheduler: Registered (300s Delay)
 [+] FFmpeg Metadata & Thumbnail Extraction: Armed
-[?] Restricted Content Saver Engine Online & Listening for Links!
+[*] Restricted Content Saver Engine Online & Listening for Links!
 `
 
 ---
 
-## ? Core Modules
+## Core Capabilities
 
 | Module | Operational Scope |
 | :--- | :--- |
@@ -40,23 +39,23 @@
 | **FFmpeg Probe** | Extracts duration, resolution, and generates crisp video thumbnail previews. |
 | **Swarm Network** | Distributed multi-session account pool balancing heavy download loads. |
 | **Timed Broadcast** | Owner broadcast with duration timers (5m, 6hr, 2d) and auto-unpinning. |
-| **Vanishing Links** | User link messages self-delete automatically upon download start. |
+| **Vanishing Links** | User post-link messages self-delete automatically upon download start. |
 
 ---
 
-## ?? System Pipeline
+## System Architecture & Workflow
 
-| Step | Component | Action |
+| Phase | System Module | Operational Mechanics |
 | :---: | :--- | :--- |
-| **1** | **User Ingestion** | User sends post link -> Bot validates link & enqueues job |
-| **2** | **Swarm Retrieval** | Swarm Account Pool downloads media stream from Telegram servers |
-| **3** | **FFmpeg Engine** | Probes video duration, width, height & extracts thumbnail frame |
-| **4** | **Delivery** | Bot delivers processed media to User in private DM |
-| **5** | **Auto-Purge** | Background timer purges media message after 5 minutes |
+| **01** | **Ingestion** | Post link received -> Validated & enqueued in Async Download Queue |
+| **02** | **Swarm Retrieval** | Active Swarm Account fetches media stream from Telegram servers |
+| **03** | **FFmpeg Processing** | Probes video duration, resolution & extracts video thumbnail frame |
+| **04** | **Delivery** | Bot uploads & delivers processed media to User in private DM |
+| **05** | **Zero-Trace Purge** | Automated 300s timer purges delivered media from user chat |
 
 ---
 
-## ?? Command Center
+## Command Reference
 
 ### Owner Commands (is_admin)
 
@@ -87,7 +86,7 @@
 
 ---
 
-## ?? Environment Variables
+## Environment Variables
 
 | Variable | Required | Description |
 | :--- | :---: | :--- |
@@ -101,7 +100,7 @@
 
 ---
 
-## ?? One-Click Deployment
+## One-Click Deployment
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com)
 
