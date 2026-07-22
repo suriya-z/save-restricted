@@ -1,13 +1,11 @@
 <div align=" center\>
 
-![Header Animation](https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:21262d&height=200&section=header&text=RESTRICTED%20CONTENT%20SAVER&fontSize=34&fontColor=58a6ff)
+![Header Banner](https://capsule-render.vercel.app/api?type=waving&color=0:0d1117,50:161b22,100:21262d&height=180&section=header&text=RESTRICTED%20CONTENT%20SAVER&fontSize=34&fontColor=58a6ff)
 
-[![Typing Animation](https://readme-typing-svg.demolab.com?font=Fira+Code&weight=600&size=17&pause=1000&color=58A6FF&center=true&vcenter=true&width=650&height=40&lines=SYSTEM_STATUS%3A+ONLINE+%5BSWARM_POOL_ACTIVE%5D;AUTOMATED_PURGE%3A+300s_MEDIA_DELETE;METADATA_ENGINE%3A+FFMPEG_HARDWARE_ACCELERATED;DISPATCH_PROTOCOL%3A+RESTRICTED_BYPASS_v2)](https://git.io/typing-svg)
-
-[![Status](https://img.shields.io/badge/SYSTEM_STATUS-ONLINE-3FB950?style=for-the-badge&logo=githubactions&logoColor=white)](https://github.com)
-[![Security](https://img.shields.io/badge/ZERO_TRACE-300s_AUTO_PURGE-F85149?style=for-the-badge&logo=letsencrypt&logoColor=white)](https://github.com)
-[![Runtime](https://img.shields.io/badge/RUNTIME-PYTHON_3.11-58A6FF?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![Deploy](https://img.shields.io/badge/DEPLOYMENT-RENDER_LIVE-A371F7?style=for-the-badge&logo=render&logoColor=white)](https://render.com)
+[![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
+[![Pyrogram](https://img.shields.io/badge/Pyrogram-v2.0-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://docs.pyrogram.org)
+[![FFmpeg](https://img.shields.io/badge/FFmpeg-Engine-0078D4?style=for-the-badge&logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
+[![Render](https://img.shields.io/badge/Render-Live_Deploy-46E3B7?style=for-the-badge&logo=render&logoColor=white)](https://render.com)
 
 ---
 
@@ -18,9 +16,9 @@
 
 ---
 
-## System Capabilities
+## Core Capabilities
 
-| Module | Operational Mechanics |
+| Module | Operational Scope |
 | :--- | :--- |
 | **Restricted Saver** | Bypasses save & forward restrictions on private Telegram channels and groups. |
 | **Auto-Destruct Engine** | Background scheduler automatically purges delivered media after 300 seconds. |
