@@ -1,8 +1,8 @@
 <div align=" center\>
 
-# RESTRICTED CONTENT SAVER & SWARM BOT
+![Header Banner](https://capsule-render.vercel.app/api?type=waving&color=gradient&customColorList=0,2,10,12,30&height=180&section=header&text=RESTRICTED%20SAVER%20SWARM&fontSize=34&fontColor=ffffff&animation=twinkling)
 
-An ultra-fast, high-performance Telegram Restricted Content Downloader powered by Distributed Swarm Session Pooling, Automatic 5-Minute Media Self-Destruction, and FFmpeg Video Processing.
+[![Typing SVG](https://readme-typing-svg.demolab.com?font=Fira+Code&size=20&pause=1000&color=46E3B7&center=true&vcenter=true&width=600&height=40&lines=Advanced+Restricted+Content+Saver;Distributed+Swarm+Session+Pooling;Automated+5-Minute+Media+Self-Destruction;FFmpeg+Video+Thumbnail+%26+Metadata+Engine)](https://git.io/typing-svg)
 
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org)
 [![Pyrogram](https://img.shields.io/badge/Pyrogram-v2.0-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://docs.pyrogram.org)
