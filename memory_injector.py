@@ -1,4 +1,4 @@
-import asyncio
+﻿import asyncio
 import math
 import time
 import os
@@ -10,7 +10,7 @@ from pyrogram.errors import FloodWait
 
 class HydraDownloader:
     """
-    🚀 0.0001% TIER HACK: Asynchronous Memory Shard Injector (Swarm Network Edition)
+    ðŸš€ 0.0001% TIER HACK: Asynchronous Memory Shard Injector (Swarm Network Edition)
     Abandons sequential TCP streaming and uses scatter-gather raw MTProto RPCs
     distributed across MULTIPLE donated Telegram accounts (The Swarm) to bypass 
     per-account rate limits completely.
@@ -89,7 +89,7 @@ class HydraDownloader:
         out_path = os.path.join(output_dir, file_name)
         
         start_time = time.time()
-        print(f"🔥 [HYDRA SHARD INJECTOR] Saturating network with {total_chunks} shards...")
+        print(f"ðŸ”¥ [HYDRA SHARD INJECTOR] Saturating network with {total_chunks} shards...")
         
         try:
             # Create a sparse file of the exact size immediately to prevent fragmentation
@@ -123,8 +123,9 @@ class HydraDownloader:
                             await progress_callback(downloaded, file_size, *progress_args)
                             
         except Exception as e:
-            print(f"Hydra Downloader failed, reverting to slow fallback: {e}")
-            return await self.apps[0].download_media(message, progress=progress_callback, progress_args=progress_args)
+            print(f"Hydra Downloader failed: {e}")
+            raise e
             
-        print(f"✅ [HYDRA INJECTOR PROCESSED] {file_size/1024/1024:.2f}MB in {time.time() - start_time:.2f}s")
+        print(f"âœ… [HYDRA INJECTOR PROCESSED] {file_size/1024/1024:.2f}MB in {time.time() - start_time:.2f}s")
         return out_path
+

@@ -572,7 +572,7 @@ async def plan_handler(client: Client, message: Message):
     await message.reply_text(txt)
 
 
-@app.on_message(filters.regex(JOIN_LINK_REGEX) & filters.private)
+@app.on_message(filters.regex(JOIN_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout", "silent"]))
 async def handle_join_link(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
@@ -1233,7 +1233,7 @@ async def process_album_job(job: dict):
     status_msg = job["status_msg"]
     silent_log = job.get("silent_log", False)
 
-    downloader = get_running_client(user_id) or user_app
+    downloader = await get_valid_downloader(user_id)
 
     try:
         effective_client = downloader
@@ -1377,6 +1377,20 @@ async def process_album_job(job: dict):
 
     await status_msg.delete()
 
+
+async def get_valid_downloader(user_id: int):
+    client = get_running_client(user_id)
+    if client:
+        try:
+            await client.get_me()
+            return client
+        except Exception as e:
+            err_str = str(e).lower()
+            if "revoked" in err_str or "auth_key" in err_str or "401" in err_str or "invalid" in err_str:
+                print(f"[CLEANUP] Purging revoked personal session for user {user_id}")
+                await delete_user_session(user_id)
+    return user_app
+
 async def process_download_job(job: dict):
     """Core download processor — runs one job from the queue."""
     message = job["message"]
@@ -1386,7 +1400,7 @@ async def process_download_job(job: dict):
     silent_log = job.get("silent_log", False)
 
     # Use the persistently running personal client (has full entity cache)
-    downloader = get_running_client(user_id) or user_app
+    downloader = await get_valid_downloader(user_id)
 
     for link in links:
         chat_id, msg_id = parse_link(link)
@@ -1564,7 +1578,7 @@ async def process_download_job(job: dict):
                 except Exception as log_err:
                     print(f"Failed to log text to LINK_LOG_CHANNEL: {log_err}")
 
-            if config.LOG_CHANNEL and sent_msg and not silent_log:
+            if config.LOG_CHANNEL and sent_msg and not silent_log and str(config.LOG_CHANNEL) != str(user_id):
                 try:
                     log_sent_msg = None
                     if user_msg.photo:

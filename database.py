@@ -1,4 +1,4 @@
-import os
+﻿import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
@@ -73,7 +73,7 @@ def init_db():
                     );
                 """)
             conn.commit()
-        print("✅ Database initialized (Supabase PostgreSQL)")
+        print("[DB] Database initialized (Supabase PostgreSQL)")
     except Exception as e:
         # Mask the password in the URL for safe logging
         masked_url = SUPABASE_DB_URL
@@ -90,8 +90,8 @@ def init_db():
                     else:
                         masked_url = f"{prefix}:{proto}//{credentials}@{host_info}"
         
-        print(f"❌ DATABASE ERROR: {e}")
-        print(f"🔗 Attempted URL: {masked_url}")
+        print(f"[DB ERROR] DATABASE ERROR: {e}")
+        print(f"[DB INFO] Attempted URL: {masked_url}")
         raise e
 
 def add_user(user_id: int, username: str):
@@ -189,7 +189,7 @@ def get_stats():
     return users, downloads
 
 def get_all_users() -> dict:
-    """Returns {str(user_id): {username, banned}} — same interface as before."""
+    """Returns {str(user_id): {username, banned}} â€” same interface as before."""
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("SELECT user_id, username, banned FROM users")
@@ -345,3 +345,10 @@ def get_all_donated_sessions() -> dict:
             cur.execute("SELECT user_id, session_string FROM donated_sessions")
             rows = cur.fetchall()
             return {r["user_id"]: r["session_string"] for r in rows}
+
+def delete_donated_session(user_id: int):
+    """Remove a donated session from the swarm pool database."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM donated_sessions WHERE user_id = %s", (user_id,))
+        conn.commit()
