@@ -18,16 +18,6 @@
 
 ---
 
-## ? Animated System Execution Log
-
-<div align=\center\>
-
-[![Animated CLI Log](https://readme-typing-svg.demolab.com?font=Fira+Code&weight=500&size=14&pause=2000&color=3FB950&background=0D111700&center=false&vcenter=true&width=620&height=80&lines=%5B%2B%5D+Swarm+Session+Pool%3A+4+Active+User+Nodes+Connected;%5B%2B%5D+Queue+Worker%3A+Concurrency+16+%7C+Job+ID%238941+Processing;%5B%2B%5D+FFmpeg%3A+Extracting+Video+Thumbnail+%26+Resolution;%5B%2B%5D+Auto-Purge%3A+Media+Delivered+%7C+5m+Timer+Armed)](https://git.io/typing-svg)
-
-</div>
-
----
-
 ## System Capabilities
 
 | Module | Operational Mechanics |
