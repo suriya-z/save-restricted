@@ -31,24 +31,15 @@ An ultra-fast, high-performance Telegram Restricted Content Downloader powered b
 
 ---
 
-## System Architecture
+## System Architecture & Pipeline
 
-`
- +----------------+ +------------+ +----------------+ +-----------------+
- | User Request | --> | Bot Client | --> | Download Queue | --> | Swarm User Pool |
- +----------------+ +------------+ +----------------+ +-----------------+
- |
- +----------------+ +-----------------+ +---------------+ |
- | Auto-Destruct | <-- | Delivered Media | <-- | FFmpeg Engine | <--------+
- +----------------+ +-----------------+ +---------------+
-`
-
-### Execution Pipeline
-
-1. **Ingestion**: User submits restricted post link -> Bot validates request and pushes task to Download Queue.
-2. **Swarm Retrieval**: Swarm Pool assigns active user session to download media from Telegram servers.
-3. **Media Processing**: FFmpeg extracts duration, dimensions, and generates thumbnail frame.
-4. **Delivery & Lifecycle**: Bot delivers media to User chat and registers 5-minute (300s) auto-destruction timer.
+| Step | Component | Operational Details |
+| :---: | :--- | :--- |
+| **1** | **User Ingestion** | User submits restricted post link -> Bot validates link & enqueues job |
+| **2** | **Swarm Retrieval** | Swarm Account Pool accesses channel & downloads raw media stream |
+| **3** | **Media Processing** | FFmpeg extracts video duration, resolution & generates thumbnail frame |
+| **4** | **Dispatch & Delivery** | Bot sends processed video/file back to User in private DM |
+| **5** | **Purge Lifecycle** | 5-minute background timer fires and deletes media message from chat |
 
 ---
 
