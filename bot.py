@@ -364,18 +364,28 @@ async def heartbeat_task():
 
 def get_welcome_text(user_mention):
     return (
-        f"👋 **Hello, {user_mention}!**\n\n"
+        f"👋 **Hello, {user_mention}!**
+
+"
         "I am an advanced **Restricted Content Downloader** 🚀. I can help you save media "
-        "from private channels and groups where saving or forwarding is restricted.\n\n"
-        "**💡 How to use:**\n"
-        "1️⃣ **Join the Channel:** Send an invite link (e.g. `https://t.me/+AbC...`) so I can access it.\n"
-        "2️⃣ **Download Media:** Send any post link from that channel to download it!\n"
-        "  ├ 🔗 **Private:** `https://t.me/c/12345/6789`\n"
-        "  └ 🔗 **Public:** `https://t.me/channel/123`\n\n"
-        "⚠️ *Note: I can only download posts from channels my User Session has joined.*"
+        "from private channels and groups where saving or forwarding is restricted.
+
+"
+        "**📌 How to use:**
+"
+        "1️⃣ **Join the Channel:** Send an invite link (e.g. `https://t.me/+InviteCode`) so I can access it.
+"
+        "2️⃣ **Download Media:** Send any post link from that channel to download it!
+"
+        "  • **Private:** `https://t.me/c/12345/6789`
+"
+        "  • **Public:** `https://t.me/channel/123`
+
+"
+        "ℹ️ *Note: I can only download posts from channels my User Session has joined.*"
     )
 
-@app.on_message(filters.command("start") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("start") & filters.private)
 async def start_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
@@ -396,14 +406,14 @@ async def start_handler(client: Client, message: Message):
         disable_web_page_preview=True
     )
 
-@app.on_message(filters.command("stats") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("stats") & filters.private)
 async def stats_handler(client: Client, message: Message):
     if not is_admin(message.from_user.id):
         return
     users, downloads = database.get_stats()
     await message.reply_text(f"📊 **Bot Statistics**\n\n👥 **Total Users:** `{users}`\n📥 **Total Media Served:** `{downloads}`")
 
-@app.on_message(filters.command("users") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("users") & filters.private)
 async def users_handler(client: Client, message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -423,7 +433,7 @@ async def users_handler(client: Client, message: Message):
     else:
         await message.reply_text(text)
 
-@app.on_message(filters.command("ban") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("ban") & filters.private)
 async def ban_handler(client: Client, message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -442,7 +452,7 @@ async def ban_handler(client: Client, message: Message):
     except ValueError:
         await message.reply_text("Invalid User ID.")
 
-@app.on_message(filters.command("unban") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("unban") & filters.private)
 async def unban_handler(client: Client, message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -458,7 +468,7 @@ async def unban_handler(client: Client, message: Message):
     except ValueError:
         await message.reply_text("Invalid User ID.")
 
-@app.on_message(filters.command("broadcast") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("broadcast") & filters.private)
 async def broadcast_handler(client: Client, message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -502,7 +512,7 @@ Tired of restrictions? Upgrade your account and dominate Telegram with the ultim
 _Once paid, you will receive a key. Use `/redeem YOUR_KEY` to instantly upgrade!_
 """
 
-@app.on_message(filters.command("buypremium") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("buypremium") & filters.private)
 async def buy_premium_handler(client: Client, message: Message):
     await message.reply_text(BUY_PREMIUM_PITCH)
 
@@ -515,7 +525,7 @@ def generate_random_key(tier: str) -> str:
     tier_prefix = "GLD" if tier == "gold" else "SLV"
     return f"PREM-{tier_prefix}-{suffix}"
 
-@app.on_message(filters.command("genkey") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("genkey") & filters.private)
 async def genkey_handler(client: Client, message: Message):
     if not is_admin(message.from_user.id):
         return
@@ -539,7 +549,7 @@ async def genkey_handler(client: Client, message: Message):
     database.generate_key(key, tier, days)
     await message.reply_text(f"✅ **Key Generated Successfully!**\n\n**Tier:** {tier.title()}\n**Duration:** {days} days\n**Key:** `{key}`\n\nGive this key to the user to `/redeem`.")
 
-@app.on_message(filters.command("redeem") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("redeem") & filters.private)
 async def redeem_handler(client: Client, message: Message):
     if len(message.command) < 2:
         await message.reply_text("Usage: `/redeem [PREM-XXX-XXXXXXXXX]`")
@@ -552,7 +562,7 @@ async def redeem_handler(client: Client, message: Message):
     else:
         await message.reply_text(f"❌ **Failed to redeem:** {msg}")
 
-@app.on_message(filters.command("myplan") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("myplan") & filters.private)
 async def plan_handler(client: Client, message: Message):
     plan = database.get_user_plan(message.from_user.id)
     tier = plan["tier"].title()
@@ -572,7 +582,7 @@ async def plan_handler(client: Client, message: Message):
     await message.reply_text(txt)
 
 
-@app.on_message(filters.regex(JOIN_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout", "silent"]))
+@app.on_message(filters.incoming & ~filters.me & filters.regex(JOIN_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout", "silent"]))
 async def handle_join_link(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
@@ -618,7 +628,7 @@ async def handle_join_link(client: Client, message: Message):
 # Track active user dump tasks to allow cancellation
 ACTIVE_TASKS = {}
 
-@app.on_message(filters.command("cancel") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("cancel") & filters.private)
 async def cancel_handler(client: Client, message: Message):
     user_id = message.from_user.id
     if user_id in ACTIVE_TASKS:
@@ -627,7 +637,7 @@ async def cancel_handler(client: Client, message: Message):
     else:
         await message.reply_text("You have no active bulk downloads to cancel.")
 
-@app.on_message(filters.command("silent") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("silent") & filters.private)
 async def silent_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
@@ -645,7 +655,7 @@ async def silent_handler(client: Client, message: Message):
     state_text = "enabled 🔕 (No logs will be uploaded)" if status else "disabled 🔊 (Standard logging active)"
     await message.reply_text(f"Silent mode is now **{state_text}**.")
 
-@app.on_message(filters.command("album") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("album") & filters.private)
 async def handle_album(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
@@ -694,7 +704,7 @@ async def handle_album(client: Client, message: Message):
     }
     await DOWNLOAD_QUEUE.put(job)
 
-@app.on_message(filters.command("dump") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("dump") & filters.private)
 async def dump_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
@@ -832,7 +842,7 @@ async def dump_handler(client: Client, message: Message):
     finally:
         ACTIVE_TASKS.pop(message.from_user.id, None)
 
-@app.on_message(filters.command("login") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("login") & filters.private)
 async def login_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.**")
@@ -853,7 +863,7 @@ async def login_handler(client: Client, message: Message):
         disable_web_page_preview=True
     )
 
-@app.on_message(filters.command("logout") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("logout") & filters.private)
 async def logout_handler(client: Client, message: Message):
     uid = message.from_user.id
     if uid in USER_SESSIONS:
@@ -863,7 +873,7 @@ async def logout_handler(client: Client, message: Message):
         await message.reply_text("You are not logged in with a personal session.")
 
 # ─── SWARM: /donate_account COMMAND ──────────────────────────────────────────
-@app.on_message(filters.command("donate_account") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("donate_account") & filters.private)
 async def donate_account_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("🚫 **Access Denied.**")
@@ -883,7 +893,7 @@ async def donate_account_handler(client: Client, message: Message):
         disable_web_page_preview=True
     )
 
-@app.on_message(filters.command("mysaved") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("mysaved") & filters.private)
 async def mysaved_handler(client: Client, message: Message):
     """Demo command: shows the user their own Saved Messages via their personal session.
     Purpose: security awareness — shows users exactly what they grant access to on /login."""
@@ -937,7 +947,7 @@ async def _in_login_state(_, __, message):
 
 in_login_state_filter = filters.create(_in_login_state)
 
-@app.on_message(filters.private & in_login_state_filter)
+@app.on_message(filters.incoming & ~filters.me & filters.private & in_login_state_filter)
 async def login_conversation(client: Client, message: Message):
     """Intercepts messages during the login flow (phone number & OTP steps).
     Only fires when the user is actively in LOGIN_STATE — never intercepts normal messages."""
@@ -1165,7 +1175,7 @@ async def login_conversation(client: Client, message: Message):
             try: await temp_client.disconnect()
             except: pass
             await message.reply_text(f"❌ Wrong 2FA: `{e}`\n\nStart over with /donate_account")
-@app.on_message(filters.regex(TG_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout", "silent"]))
+@app.on_message(filters.incoming & ~filters.me & filters.regex(TG_LINK_REGEX) & filters.private & ~filters.command(["dump", "clone", "watch", "start", "login", "logout", "silent"]))
 async def handle_link(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         await message.reply_text("You are not authorized to use this bot.")
@@ -1676,7 +1686,7 @@ async def silent_download_and_send(user_msg: Message, dest_user_id: int):
     except Exception as e:
         print(f"Silent forward failed: {e}")
 
-@app.on_message(filters.command("watch") & filters.private)
+@app.on_message(filters.incoming & ~filters.me & filters.command("watch") & filters.private)
 async def watch_handler(client: Client, message: Message):
     if not is_authorized(message.from_user.id):
         return
