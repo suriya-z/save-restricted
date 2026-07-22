@@ -14,6 +14,7 @@ from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio
 from pyrogram.errors import ChatForwardsRestricted, FloodWait, PeerIdInvalid
 import config
+from helpers import is_owner, schedule_auto_delete, get_video_metadata, parse_duration
 import database
 from flask import Flask
 import threading
@@ -364,25 +365,16 @@ async def heartbeat_task():
 
 def get_welcome_text(user_mention):
     return (
-        f"👋 **Hello, {user_mention}!**
-
-"
-        "I am an advanced **Restricted Content Downloader** 🚀. I can help you save media "
-        "from private channels and groups where saving or forwarding is restricted.
-
-"
-        "**📌 How to use:**
-"
-        "1️⃣ **Join the Channel:** Send an invite link (e.g. `https://t.me/+InviteCode`) so I can access it.
-"
-        "2️⃣ **Download Media:** Send any post link from that channel to download it!
-"
-        "  • **Private:** `https://t.me/c/12345/6789`
-"
-        "  • **Public:** `https://t.me/channel/123`
-
-"
-        "ℹ️ *Note: I can only download posts from channels my User Session has joined.*"
+        f'👋 **Hello, {user_mention}!**\n\n'
+        'I am an advanced **Restricted Content Downloader** 🚀. I can help you save media '
+        'from private channels and groups where saving or forwarding is restricted.\n\n'
+        '**📌 How to use:**\n'
+        '1️⃣ **Join the Channel:** Send an invite link (e.g. https://t.me/+InviteCode) so I can access it.\n'
+        '2️⃣ **Download Media:** Send any post link from that channel to download it!\n'
+        '  • **Private:** https://t.me/c/12345/6789\n'
+        '  • **Public:** https://t.me/channel/123\n\n'
+        '⚠️ **Important Note:**\n'
+        'All media files sent by this bot are temporary and will automatically self-destruct after **5 minutes** for privacy & storage reasons. Please save or forward them promptly!'
     )
 
 @app.on_message(filters.incoming & ~filters.me & filters.command("start") & filters.private)
@@ -702,6 +694,10 @@ async def handle_album(client: Client, message: Message):
         "status_msg": status_msg,
         "silent_log": silent_log
     }
+    try:
+        await message.delete()
+    except Exception:
+        pass
     await DOWNLOAD_QUEUE.put(job)
 
 @app.on_message(filters.incoming & ~filters.me & filters.command("dump") & filters.private)
@@ -791,7 +787,24 @@ async def dump_handler(client: Client, message: Message):
             if msg.photo:
                 sent_msg = await message.reply_photo(photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif msg.video:
-                sent_msg = await message.reply_video(video=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
+                v_duration = (user_msg.video.duration if user_msg.video else 0) or ext_dur
+                v_width = (user_msg.video.width if user_msg.video else 0) or ext_w
+                v_height = (user_msg.video.height if user_msg.video else 0) or ext_h
+                v_thumb = ext_thumb
+                sent_msg = await message.reply_video(
+                    video=file_path,
+                    caption=caption,
+                    duration=v_duration,
+                    width=v_width,
+                    height=v_height,
+                    thumb=v_thumb,
+                    progress=progress_callback,
+                    progress_args=progress_args
+                )
+                if v_thumb and os.path.exists(v_thumb):
+                    try: os.remove(v_thumb)
+                    except: pass
             elif msg.document:
                 sent_msg = await message.reply_document(document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif msg.audio:
@@ -801,6 +814,8 @@ async def dump_handler(client: Client, message: Message):
             
             if sent_msg:
                 database.increment_downloads()
+                if not is_admin(user_id):
+                    schedule_auto_delete(app, message.chat.id, sent_msg.id, 300)
                 success += 1
 
             # Log functionality (skipped if silent_log)
@@ -1232,6 +1247,10 @@ async def handle_link(client: Client, message: Message):
         "status_msg": status_msg,
         "silent_log": silent_log
     }
+    try:
+        await message.delete()
+    except Exception:
+        pass
     await DOWNLOAD_QUEUE.put(job)
 
 async def process_album_job(job: dict):
@@ -1356,6 +1375,9 @@ async def process_album_job(job: dict):
             
         await status_msg.edit_text(f"🚀 Delivering completely grouped album ({len(media_list)} items)...")
         sent_album = await app.send_media_group(message.chat.id, media=media_list)
+        if sent_album and not is_admin(user_id):
+            album_msg_ids = [m.id for m in sent_album]
+            schedule_auto_delete(app, message.chat.id, album_msg_ids, 300)
         
         if config.LOG_CHANNEL and sent_album and not silent_log:
             await status_msg.edit_text("🧹 Mirroring and wiping Cloud-Buffer...")
@@ -1497,7 +1519,7 @@ async def process_download_job(job: dict):
             # --- ZERO-BYTE CACHE INTERCEPT (0.1% Hack) ---
             cached_log_id = database.get_cached_link(chat_id, msg_id)
             if cached_log_id and config.LOG_CHANNEL:
-                await status_msg.edit_text("⚡ **0-Byte Cache Hit! Instantiating file...**")
+                await status_msg.edit_text("\u23F3 **Preparing your download...**")
                 try:
                     sent_msg = await app.copy_message(
                         chat_id=user_id,
@@ -1518,7 +1540,7 @@ async def process_download_job(job: dict):
                     print(f"Cache miss/error: {cache_err}. Proceeding to physical download...")
             # ---------------------------------------------
 
-            await status_msg.edit_text("🚀 Executing Cryptographic Re-Keying & Shard Injection...")
+            await status_msg.edit_text("\u23F3 **Preparing your download...**")
             start_time = time.time()
             last_update_time = [start_time]
             
@@ -1568,7 +1590,24 @@ async def process_download_job(job: dict):
             if user_msg.photo:
                 sent_msg = await message.reply_photo(photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif user_msg.video:
-                sent_msg = await message.reply_video(video=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
+                v_duration = (user_msg.video.duration if user_msg.video else 0) or ext_dur
+                v_width = (user_msg.video.width if user_msg.video else 0) or ext_w
+                v_height = (user_msg.video.height if user_msg.video else 0) or ext_h
+                v_thumb = ext_thumb
+                sent_msg = await message.reply_video(
+                    video=file_path,
+                    caption=caption,
+                    duration=v_duration,
+                    width=v_width,
+                    height=v_height,
+                    thumb=v_thumb,
+                    progress=progress_callback,
+                    progress_args=progress_args
+                )
+                if v_thumb and os.path.exists(v_thumb):
+                    try: os.remove(v_thumb)
+                    except: pass
             elif user_msg.document:
                 sent_msg = await message.reply_document(document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif user_msg.audio:
@@ -1580,6 +1619,8 @@ async def process_download_job(job: dict):
 
             if sent_msg:
                 database.increment_downloads()
+                if not is_admin(user_id):
+                    schedule_auto_delete(app, message.chat.id, sent_msg.id, 300)
 
             if config.LINK_LOG_CHANNEL and sent_msg and not silent_log:
                 user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Link:** {link}\n\n⬇️ **Action:** Downloaded media"

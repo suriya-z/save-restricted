@@ -5,3 +5,5 @@ flask>=3.0.2
 gunicorn>=21.2.0
 psycopg2-binary>=2.9.9
 aiohttp>=3.9.3
+hachoir>=3.2.0
+pillow>=10.2.0
