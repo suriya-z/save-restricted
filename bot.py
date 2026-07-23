@@ -763,7 +763,7 @@ async def dump_handler(client: Client, message: Message):
             caption = msg.caption if msg.caption else ""
             
             # Use same visual loading system on each file
-            file_status = await message.reply_text(f"*(Bulk)* Downloading msg `{msg.id}`...")
+            file_status = await app.send_message(message.chat.id, f"*(Bulk)* Downloading msg `{msg.id}`...")
             start_time = time.time()
             last_update_time = [start_time]
             
@@ -785,14 +785,15 @@ async def dump_handler(client: Client, message: Message):
             
             sent_msg = None
             if msg.photo:
-                sent_msg = await message.reply_photo(photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                sent_msg = await app.send_photo(message.chat.id, photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif msg.video:
                 ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
-                v_duration = (user_msg.video.duration if user_msg.video else 0) or ext_dur
-                v_width = (user_msg.video.width if user_msg.video else 0) or ext_w
-                v_height = (user_msg.video.height if user_msg.video else 0) or ext_h
+                v_duration = (msg.video.duration if msg.video else 0) or ext_dur
+                v_width = (msg.video.width if msg.video else 0) or ext_w
+                v_height = (msg.video.height if msg.video else 0) or ext_h
                 v_thumb = ext_thumb
-                sent_msg = await message.reply_video(
+                sent_msg = await app.send_video(
+                    chat_id=message.chat.id,
                     video=file_path,
                     caption=caption,
                     duration=v_duration,
@@ -806,11 +807,11 @@ async def dump_handler(client: Client, message: Message):
                     try: os.remove(v_thumb)
                     except: pass
             elif msg.document:
-                sent_msg = await message.reply_document(document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                sent_msg = await app.send_document(message.chat.id, document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif msg.audio:
-                sent_msg = await message.reply_audio(audio=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                sent_msg = await app.send_audio(message.chat.id, audio=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif msg.voice:
-                sent_msg = await message.reply_voice(voice=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                sent_msg = await app.send_voice(message.chat.id, voice=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             
             if sent_msg:
                 database.increment_downloads()
@@ -1297,12 +1298,12 @@ async def process_album_job(job: dict):
                 raise e
 
         if not user_msg:
-            await message.reply_text(f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
+            await app.send_message(message.chat.id, f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
             await status_msg.delete()
             return
             
         if not user_msg.media_group_id:
-            await message.reply_text("⚠️ This link is NOT part of an album. Please use `/dump` or just send the link normally.")
+            await app.send_message(message.chat.id, "⚠️ This link is NOT part of an album. Please use `/dump` or just send the link normally.")
             await status_msg.delete()
             return
 
@@ -1310,7 +1311,7 @@ async def process_album_job(job: dict):
         media_group = await effective_client.get_media_group(effective_chat_id, msg_id)
         
         if not media_group:
-            await message.reply_text("Failed to fetch media group.")
+            await app.send_message(message.chat.id, "Failed to fetch media group.")
             await status_msg.delete()
             return
             
@@ -1369,7 +1370,7 @@ async def process_album_job(job: dict):
                 os.remove(file_path)
                 
         if not media_list:
-            await message.reply_text("❌ Failed to buffer any files from that album.")
+            await app.send_message(message.chat.id, "❌ Failed to buffer any files from that album.")
             await status_msg.delete()
             return
             
@@ -1401,11 +1402,11 @@ async def process_album_job(job: dict):
         database.increment_downloads()
         
     except FloodWait as e:
-        await message.reply_text(f"FloodWait error. Need to wait {e.value} seconds.")
+        await app.send_message(message.chat.id, f"FloodWait error. Need to wait {e.value} seconds.")
     except PeerIdInvalid:
-        await message.reply_text(f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
+        await app.send_message(message.chat.id, f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
     except Exception as e:
-        await message.reply_text(f"An error occurred while processing album {link}: `{e}`")
+        await app.send_message(message.chat.id, f"An error occurred while processing album {link}: `{e}`")
 
     await status_msg.delete()
 
@@ -1437,7 +1438,7 @@ async def process_download_job(job: dict):
     for link in links:
         chat_id, msg_id = parse_link(link)
         if not chat_id or not msg_id:
-            await message.reply_text(f"Could not parse link: {link}")
+            await app.send_message(message.chat.id, f"Could not parse link: {link}")
             continue
 
         try:
@@ -1476,28 +1477,28 @@ async def process_download_job(job: dict):
             await anim_task
 
             if not user_msg:
-                await message.reply_text(f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
+                await app.send_message(message.chat.id, f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
                 continue
 
             if user_msg.empty:
-                await message.reply_text(f"Message {link} is empty or deleted.")
+                await app.send_message(message.chat.id, f"Message {link} is empty or deleted.")
                 continue
 
             if user_msg.text and not user_msg.media:
                 await status_msg.edit_text("Sending text message...")
-                await message.reply_text(user_msg.text)
+                await app.send_message(message.chat.id, user_msg.text)
                 continue
 
             if not user_msg.media:
-                await message.reply_text(f"Message {link} does not contain supported media.")
+                await app.send_message(message.chat.id, f"Message {link} does not contain supported media.")
                 continue
                 
             # --- SaaS QUOTA CHECK ---
             file_size_bytes = 0
             if user_msg.photo:
                 file_size_bytes = user_msg.photo.file_size
-            elif user_msg.video:
-                file_size_bytes = user_msg.video.file_size
+            elif msg.video:
+                file_size_bytes = msg.video.file_size
             elif user_msg.document:
                 file_size_bytes = user_msg.document.file_size
             elif user_msg.audio:
@@ -1576,7 +1577,7 @@ async def process_download_job(job: dict):
                 )
 
             if not file_path:
-                await message.reply_text(f"Failed to download media for {link}")
+                await app.send_message(message.chat.id, f"Failed to download media for {link}")
                 continue
 
             await status_msg.edit_text("Uploading media to you... 📤")
@@ -1588,14 +1589,15 @@ async def process_download_job(job: dict):
 
             sent_msg = None
             if user_msg.photo:
-                sent_msg = await message.reply_photo(photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            elif user_msg.video:
+                sent_msg = await app.send_photo(message.chat.id, photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+            elif msg.video:
                 ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
-                v_duration = (user_msg.video.duration if user_msg.video else 0) or ext_dur
-                v_width = (user_msg.video.width if user_msg.video else 0) or ext_w
-                v_height = (user_msg.video.height if user_msg.video else 0) or ext_h
+                v_duration = (msg.video.duration if msg.video else 0) or ext_dur
+                v_width = (msg.video.width if msg.video else 0) or ext_w
+                v_height = (msg.video.height if msg.video else 0) or ext_h
                 v_thumb = ext_thumb
-                sent_msg = await message.reply_video(
+                sent_msg = await app.send_video(
+                    chat_id=message.chat.id,
                     video=file_path,
                     caption=caption,
                     duration=v_duration,
@@ -1609,13 +1611,13 @@ async def process_download_job(job: dict):
                     try: os.remove(v_thumb)
                     except: pass
             elif user_msg.document:
-                sent_msg = await message.reply_document(document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                sent_msg = await app.send_document(message.chat.id, document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif user_msg.audio:
-                sent_msg = await message.reply_audio(audio=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                sent_msg = await app.send_audio(message.chat.id, audio=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif user_msg.voice:
-                sent_msg = await message.reply_voice(voice=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                sent_msg = await app.send_voice(message.chat.id, voice=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             else:
-                sent_msg = await message.reply_document(document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
+                sent_msg = await app.send_document(message.chat.id, document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
 
             if sent_msg:
                 database.increment_downloads()
@@ -1634,7 +1636,7 @@ async def process_download_job(job: dict):
                     log_sent_msg = None
                     if user_msg.photo:
                         log_sent_msg = await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
-                    elif user_msg.video:
+                    elif msg.video:
                         log_sent_msg = await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
                     elif user_msg.document:
                         log_sent_msg = await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
@@ -1656,12 +1658,12 @@ async def process_download_job(job: dict):
                 os.remove(file_path)
 
         except FloodWait as e:
-            await message.reply_text(f"FloodWait error. Need to wait {e.value} seconds.")
+            await app.send_message(message.chat.id, f"FloodWait error. Need to wait {e.value} seconds.")
             await asyncio.sleep(e.value)
         except PeerIdInvalid:
-            await message.reply_text(f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
+            await app.send_message(message.chat.id, f"⚠️ **Access Denied:** I haven't joined the restricted group/channel for this link yet!\n\n👉 **Please send me the Invite Link (e.g. `https://t.me/+...`) so I can join it first!** Once I join, you can send me the post link again.")
         except Exception as e:
-            await message.reply_text(f"An error occurred while processing {link}: `{e}`")
+            await app.send_message(message.chat.id, f"An error occurred while processing {link}: `{e}`")
 
     await status_msg.delete()
 
@@ -1707,7 +1709,7 @@ async def silent_download_and_send(user_msg: Message, dest_user_id: int):
         sent_msg = None
         if user_msg.photo:
             sent_msg = await app.send_photo(dest_user_id, photo=file_path, caption=caption)
-        elif user_msg.video:
+        elif msg.video:
             sent_msg = await app.send_video(dest_user_id, video=file_path, caption=caption)
         elif user_msg.document:
             sent_msg = await app.send_document(dest_user_id, document=file_path, caption=caption)
