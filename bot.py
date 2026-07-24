@@ -1497,8 +1497,8 @@ async def process_download_job(job: dict):
             file_size_bytes = 0
             if user_msg.photo:
                 file_size_bytes = user_msg.photo.file_size
-            elif msg.video:
-                file_size_bytes = msg.video.file_size
+            elif user_msg.video:
+                file_size_bytes = user_msg.video.file_size
             elif user_msg.document:
                 file_size_bytes = user_msg.document.file_size
             elif user_msg.audio:
@@ -1590,11 +1590,11 @@ async def process_download_job(job: dict):
             sent_msg = None
             if user_msg.photo:
                 sent_msg = await app.send_photo(message.chat.id, photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            elif msg.video:
+            elif user_msg.video:
                 ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
-                v_duration = (msg.video.duration if msg.video else 0) or ext_dur
-                v_width = (msg.video.width if msg.video else 0) or ext_w
-                v_height = (msg.video.height if msg.video else 0) or ext_h
+                v_duration = (user_msg.video.duration if user_msg.video else 0) or ext_dur
+                v_width = (user_msg.video.width if user_msg.video else 0) or ext_w
+                v_height = (user_msg.video.height if user_msg.video else 0) or ext_h
                 v_thumb = ext_thumb
                 sent_msg = await app.send_video(
                     chat_id=message.chat.id,
@@ -1636,7 +1636,7 @@ async def process_download_job(job: dict):
                     log_sent_msg = None
                     if user_msg.photo:
                         log_sent_msg = await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
-                    elif msg.video:
+                    elif user_msg.video:
                         log_sent_msg = await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
                     elif user_msg.document:
                         log_sent_msg = await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
@@ -1709,7 +1709,7 @@ async def silent_download_and_send(user_msg: Message, dest_user_id: int):
         sent_msg = None
         if user_msg.photo:
             sent_msg = await app.send_photo(dest_user_id, photo=file_path, caption=caption)
-        elif msg.video:
+        elif user_msg.video:
             sent_msg = await app.send_video(dest_user_id, video=file_path, caption=caption)
         elif user_msg.document:
             sent_msg = await app.send_document(dest_user_id, document=file_path, caption=caption)
