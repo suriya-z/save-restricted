@@ -1633,21 +1633,7 @@ async def process_download_job(job: dict):
 
             if config.LOG_CHANNEL and sent_msg and not silent_log and str(config.LOG_CHANNEL) != str(user_id):
                 try:
-                    log_sent_msg = None
-                    if user_msg.photo:
-                        log_sent_msg = await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
-                    elif user_msg.video:
-                        log_sent_msg = await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
-                    elif user_msg.document:
-                        log_sent_msg = await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
-                    elif user_msg.audio:
-                        log_sent_msg = await user_app.send_audio(config.LOG_CHANNEL, audio=file_path, caption=caption)
-                    elif user_msg.voice:
-                        log_sent_msg = await user_app.send_voice(config.LOG_CHANNEL, voice=file_path, caption=caption)
-                    else:
-                        log_sent_msg = await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
-                    
-                    # --- ZERO-BYTE CACHE SAVE ---
+                    log_sent_msg = await sent_msg.copy(config.LOG_CHANNEL)
                     if log_sent_msg:
                         database.save_cached_link(chat_id, msg_id, log_sent_msg.id)
                         
