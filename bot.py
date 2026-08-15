@@ -556,6 +556,9 @@ async def redeem_handler(client: Client, message: Message):
 
 @app.on_message(filters.incoming & ~filters.me & filters.command("myplan") & filters.private)
 async def plan_handler(client: Client, message: Message):
+    if is_admin(message.from_user.id):
+        await message.reply_text("**Your Current Subscription:**\n\n**Tier:* `Gold (Owner God Mode)`\n**Status:* `Unlimited Downloads Actived")
+        return
     plan = database.get_user_plan(message.from_user.id)
     tier = plan["tier"].title()
     used = plan["daily_bytes"]
@@ -654,7 +657,7 @@ async def handle_album(client: Client, message: Message):
         return
         
     plan = database.get_user_plan(message.from_user.id)
-    if plan["tier"] != "gold":
+    if plan["tier"] != "gold" and not is_admin(message.from_user.id):
         await message.reply_text("👑 **GOLD FEATURE EXCLUSIVE** 👑\n\nThe `/album` command is reserved for Gold Members. \nSilver Members have unlimited single downloads, but bulk compilation requires the Gold Tier (69₹/month).")
         return
         
@@ -707,7 +710,7 @@ async def dump_handler(client: Client, message: Message):
         return
         
     plan = database.get_user_plan(message.from_user.id)
-    if plan["tier"] != "gold":
+    if plan["tier"] != "gold" and not is_admin(message.from_user.id):
         await message.reply_text("👑 **GOLD FEATURE EXCLUSIVE** 👑\n\nThe `/dump` bulk downloader is reserved for Gold Members (69₹/month).\nPlease upgrade to Gold to use multiple offset downloading.")
         return
 
