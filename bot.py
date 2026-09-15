@@ -14,7 +14,7 @@ from pyrogram import Client, filters, idle
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, InputMediaPhoto, InputMediaVideo, InputMediaDocument, InputMediaAudio
 from pyrogram.errors import ChatForwardsRestricted, FloodWait, PeerIdInvalid
 import config
-from helpers import is_owner, schedule_auto_delete, get_video_metadata, parse_duration
+from helpers import is_owner, schedule_auto_delete, get_video_metadata, parse_duration, download_media_adaptive, cleanup_media
 import database
 from flask import Flask
 import threading
@@ -1557,27 +1557,33 @@ async def process_download_job(job: dict):
             except Exception as e:
                 print(f"Re-Keying skip: {e}")
 
-            # --- 0.0001% TIER: UDP-Style Memory Shard Injection ---
-            from memory_injector import HydraDownloader
-            try:
-                swarm_pool = [downloader] + SWARM_CLIENTS  # Multiplex across all available nodes
-                if user_id in config.OWNER_IDS:
-                    hydra = HydraDownloader(swarm_pool, max_connections=15) # God-mode parallel
-                else:
-                    hydra = HydraDownloader(swarm_pool, max_connections=5) # Normal parallel
-                    
-                file_path = await hydra.download(
-                    user_msg,
-                    progress_callback=progress_callback,
-                    progress_args=(status_msg, "Injecting Shards... 📥", start_time, last_update_time)
-                )
-            except Exception as e:
-                print(f"Hydra Shard Failed, falling back: {e}")
-                file_path = await downloader.download_media(
-                    user_msg,
-                    progress=progress_callback,
-                    progress_args=(status_msg, "Downloading Media... 📥", start_time, last_update_time)
-                )
+            # --- ZERO-DISK RAM STREAMING (< 75MB) vs HYDRA/SWARM DISK BUFFER ---
+            file_path = await download_media_adaptive(
+                downloader,
+                user_msg,
+                file_size_bytes,
+                progress=progress_callback,
+                progress_args=(status_msg, "⚡ Streaming (RAM Pipe)... 📥", start_time, last_update_time)
+            )
+
+            if not file_path:
+                from memory_injector import HydraDownloader
+                try:
+                    swarm_pool = [downloader] + SWARM_CLIENTS  # Multiplex across all available nodes
+                    conns = 15 if user_id in config.OWNER_IDS else 5
+                    hydra = HydraDownloader(swarm_pool, max_connections=conns)
+                    file_path = await hydra.download(
+                        user_msg,
+                        progress_callback=progress_callback,
+                        progress_args=(status_msg, "Injecting Shards... 📥", start_time, last_update_time)
+                    )
+                except Exception as e:
+                    print(f"Hydra Shard Failed, falling back: {e}")
+                    file_path = await downloader.download_media(
+                        user_msg,
+                        progress=progress_callback,
+                        progress_args=(status_msg, "Downloading Media... 📥", start_time, last_update_time)
+                    )
 
             if not file_path:
                 await app.send_message(message.chat.id, f"Failed to download media for {link}")
@@ -1594,11 +1600,23 @@ async def process_download_job(job: dict):
             if user_msg.photo:
                 sent_msg = await app.send_photo(message.chat.id, photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif user_msg.video:
-                ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
-                v_duration = (user_msg.video.duration if user_msg.video else 0) or ext_dur
-                v_width = (user_msg.video.width if user_msg.video else 0) or ext_w
-                v_height = (user_msg.video.height if user_msg.video else 0) or ext_h
-                v_thumb = ext_thumb
+                v_thumb = None
+                if isinstance(file_path, str):
+                    ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
+                    v_duration = (user_msg.video.duration if user_msg.video else 0) or ext_dur
+                    v_width = (user_msg.video.width if user_msg.video else 0) or ext_w
+                    v_height = (user_msg.video.height if user_msg.video else 0) or ext_h
+                    v_thumb = ext_thumb
+                else:
+                    v_duration = (user_msg.video.duration if user_msg.video else 0)
+                    v_width = (user_msg.video.width if user_msg.video else 0)
+                    v_height = (user_msg.video.height if user_msg.video else 0)
+                    if user_msg.video.thumbs:
+                        try:
+                            v_thumb = await downloader.download_media(user_msg.video.thumbs[0].file_id, in_memory=True)
+                        except Exception:
+                            v_thumb = None
+
                 sent_msg = await app.send_video(
                     chat_id=message.chat.id,
                     video=file_path,
@@ -1610,9 +1628,7 @@ async def process_download_job(job: dict):
                     progress=progress_callback,
                     progress_args=progress_args
                 )
-                if v_thumb and os.path.exists(v_thumb):
-                    try: os.remove(v_thumb)
-                    except: pass
+                cleanup_media(v_thumb)
             elif user_msg.document:
                 sent_msg = await app.send_document(message.chat.id, document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             elif user_msg.audio:
@@ -1643,8 +1659,7 @@ async def process_download_job(job: dict):
                 except Exception as log_err:
                     print(f"Failed to log media to LOG_CHANNEL: {log_err}")
 
-            if os.path.exists(file_path):
-                os.remove(file_path)
+            cleanup_media(file_path)
 
         except FloodWait as e:
             await app.send_message(message.chat.id, f"FloodWait error. Need to wait {e.value} seconds.")

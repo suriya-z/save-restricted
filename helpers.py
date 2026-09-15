@@ -76,3 +76,34 @@ def parse_duration(duration_str: str) -> int:
     elif unit in ['d', 'day', 'days']:
         return val * 86400
     return 0
+
+RAM_STREAM_THRESHOLD = 75 * 1024 * 1024  # 75MB in-memory ram ceiling
+
+async def download_media_adaptive(client, message, file_size_bytes: int = 0, progress=None, progress_args=()):
+    if 0 < file_size_bytes <= RAM_STREAM_THRESHOLD:
+        try:
+            return await client.download_media(
+                message,
+                in_memory=True,
+                progress=progress,
+                progress_args=progress_args
+            )
+        except Exception as e:
+            print(f'RAM-streaming fallback to disk: {e}')
+            return None
+    return None
+
+def cleanup_media(media_target):
+    if not media_target:
+        return
+    if isinstance(media_target, str):
+        if os.path.exists(media_target):
+            try:
+                os.remove(media_target)
+            except Exception:
+                pass
+    elif hasattr(media_target, 'close'):
+        try:
+            media_target.close()
+        except Exception:
+            pass
