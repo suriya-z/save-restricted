@@ -22,7 +22,7 @@ LINK_LOG_CHANNEL = int(LINK_LOG_CHANNEL_STR.strip()) if LINK_LOG_CHANNEL_STR els
 
 # Optional: List of user IDs allowed to use the bot
 # Comma separated list of integers
-OWNER_ID_STR = os.getenv("OWNER_ID", "")
+OWNER_ID_STR = os.getenv("OWNER_ID") or os.getenv("OWNER_IDS", "")
 OWNER_IDS = [int(i.strip()) for i in OWNER_ID_STR.split(",") if i.strip()] if OWNER_ID_STR else []
 
 def check_config():
