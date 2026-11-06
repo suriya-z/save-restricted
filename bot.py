@@ -16,17 +16,10 @@ from pyrogram.errors import ChatForwardsRestricted, FloodWait, PeerIdInvalid
 import config
 from helpers import is_owner, schedule_auto_delete, get_video_metadata, parse_duration, download_media_adaptive, cleanup_media
 import database
-from flask import Flask
-import threading
-
-web_app = Flask(__name__)
-
-@web_app.route('/')
-def home():
-    return "Bot is running online!"
-
-def run_server():
-    web_app.run(host="0.0.0.0", port=8080)
+from web_server import start_keep_alive
+from access_engine import AccessEngine, PostgresAccessAdapter
+from swarm_pool import SwarmPool
+from media_pipeline import MediaPipeline
 
 
 app = Client(
@@ -62,9 +55,19 @@ user_app = Client(
 # Format: { "source_chat_id": [user_id_1, user_id_2] }
 WATCHED_CHANNELS = {}
 
-# ─── SWARM NETWORK (PROJECT MAYHEM) ──────────────────────────────────────────
+# ─── SWARM NETWORK & CORE ENGINES ────────────────────────────────────────────
 # Donated account clients pooled for distributed shard downloads
 SWARM_CLIENTS = []
+swarm_pool = SwarmPool(primary_client=user_app, database_adapter=database)
+access_engine = AccessEngine(adapter=PostgresAccessAdapter(database), owner_ids=config.OWNER_IDS)
+media_pipeline = MediaPipeline(
+    bot_client=app,
+    user_client=user_app,
+    swarm_pool=swarm_pool,
+    cache_adapter=database,
+    log_channel=config.LOG_CHANNEL,
+    link_log_channel=config.LINK_LOG_CHANNEL
+)
 
 # ─── DOWNLOAD QUEUE ───────────────────────────────────────────────────────────
 # Jobs: dict with keys: message, links, user_id
@@ -656,8 +659,8 @@ async def handle_album(client: Client, message: Message):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
         return
         
-    plan = database.get_user_plan(message.from_user.id)
-    if plan["tier"] != "gold" and not is_admin(message.from_user.id):
+    allowed, _ = access_engine.can_execute(message.from_user.id, "album")
+    if not allowed and not is_admin(message.from_user.id):
         await message.reply_text("👑 **GOLD FEATURE EXCLUSIVE** 👑\n\nThe `/album` command is reserved for Gold Members. \nSilver Members have unlimited single downloads, but bulk compilation requires the Gold Tier (69₹/month).")
         return
         
@@ -709,8 +712,8 @@ async def dump_handler(client: Client, message: Message):
         await message.reply_text("🚫 **Access Denied.** You are not authorized to use this bot.")
         return
         
-    plan = database.get_user_plan(message.from_user.id)
-    if plan["tier"] != "gold" and not is_admin(message.from_user.id):
+    allowed, _ = access_engine.can_execute(message.from_user.id, "dump")
+    if not allowed and not is_admin(message.from_user.id):
         await message.reply_text("👑 **GOLD FEATURE EXCLUSIVE** 👑\n\nThe `/dump` bulk downloader is reserved for Gold Members (69₹/month).\nPlease upgrade to Gold to use multiple offset downloading.")
         return
 
@@ -770,83 +773,29 @@ async def dump_handler(client: Client, message: Message):
             start_time = time.time()
             last_update_time = [start_time]
             
-            file_path = await user_app.download_media(
-                msg,
-                progress=progress_callback,
-                progress_args=(file_status, f"*(Bulk)* Downloading msg `{msg.id}`...", start_time, last_update_time)
+            sent_msg = await media_pipeline.deliver_media(
+                source_msg=msg,
+                target_chat_id=message.chat.id,
+                user_id=message.from_user.id,
+                is_admin=is_admin(message.from_user.id),
+                downloader=user_app,
+                progress_callback=progress_callback,
+                progress_args=(file_status, f"*(Bulk)* Processing msg `{msg.id}`...", start_time, last_update_time)
             )
-            
-            if not file_path:
-                await file_status.delete()
-                continue
-
-            await file_status.edit_text(f"*(Bulk)* Uploading msg `{msg.id}`...")
-            
-            start_time = time.time()
-            last_update_time = [start_time]
-            progress_args = (file_status, f"*(Bulk)* Uploading msg `{msg.id}`...", start_time, last_update_time)
-            
-            sent_msg = None
-            if msg.photo:
-                sent_msg = await app.send_photo(message.chat.id, photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            elif msg.video:
-                ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
-                v_duration = (msg.video.duration if msg.video else 0) or ext_dur
-                v_width = (msg.video.width if msg.video else 0) or ext_w
-                v_height = (msg.video.height if msg.video else 0) or ext_h
-                v_thumb = ext_thumb
-                sent_msg = await app.send_video(
-                    chat_id=message.chat.id,
-                    video=file_path,
-                    caption=caption,
-                    duration=v_duration,
-                    width=v_width,
-                    height=v_height,
-                    thumb=v_thumb,
-                    progress=progress_callback,
-                    progress_args=progress_args
-                )
-                if v_thumb and os.path.exists(v_thumb):
-                    try: os.remove(v_thumb)
-                    except: pass
-            elif msg.document:
-                sent_msg = await app.send_document(message.chat.id, document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            elif msg.audio:
-                sent_msg = await app.send_audio(message.chat.id, audio=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            elif msg.voice:
-                sent_msg = await app.send_voice(message.chat.id, voice=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
             
             if sent_msg:
                 database.increment_downloads()
-                if not is_admin(user_id):
-                    schedule_auto_delete(app, message.chat.id, sent_msg.id, 300)
                 success += 1
 
-            # Log functionality (skipped if silent_log)
-            if sent_msg and not silent_log:
-                user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Bulk Dump Link:** {link} (msg `{msg.id}`)\n⬇️ **Action:** Bulk Downloaded"
-                try:
-                    # Text + link → LINK_LOG_CHANNEL
-                    if config.LINK_LOG_CHANNEL:
+                # Log functionality (skipped if silent_log)
+                if not silent_log and config.LINK_LOG_CHANNEL:
+                    user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Bulk Dump Link:** {link} (msg `{msg.id}`)\n⬇️ **Action:** Bulk Downloaded"
+                    try:
+                        # Text + link → LINK_LOG_CHANNEL
                         await app.send_message(chat_id=config.LINK_LOG_CHANNEL, text=user_info)
-                    # Raw media only → LOG_CHANNEL
-                    if config.LOG_CHANNEL:
-                        if msg.photo:
-                            await user_app.send_photo(config.LOG_CHANNEL, photo=file_path, caption=caption)
-                        elif msg.video:
-                            await user_app.send_video(config.LOG_CHANNEL, video=file_path, caption=caption)
-                        elif msg.document:
-                            await user_app.send_document(config.LOG_CHANNEL, document=file_path, caption=caption)
-                        elif msg.audio:
-                            await user_app.send_audio(config.LOG_CHANNEL, audio=file_path, caption=caption)
-                        elif msg.voice:
-                            await user_app.send_voice(config.LOG_CHANNEL, voice=file_path, caption=caption)
-                except Exception:
-                    pass
+                    except Exception:
+                        pass
 
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                
             await file_status.delete()
             
         if stop_event.is_set():
@@ -1134,6 +1083,7 @@ async def login_conversation(client: Client, message: Message):
             swarm_client = Client(f"swarm_{uid}", api_id=config.API_ID, api_hash=config.API_HASH, session_string=session_string, in_memory=True)
             await swarm_client.start()
             SWARM_CLIENTS.append(swarm_client)
+            swarm_pool.add_active_client(uid, swarm_client)
             # Reward: Gold tier (no expiry = lifetime)
             from datetime import datetime, timedelta
             with database.get_conn() as conn:
@@ -1176,6 +1126,7 @@ async def login_conversation(client: Client, message: Message):
             swarm_client = Client(f"swarm_{uid}", api_id=config.API_ID, api_hash=config.API_HASH, session_string=session_string, in_memory=True)
             await swarm_client.start()
             SWARM_CLIENTS.append(swarm_client)
+            swarm_pool.add_active_client(uid, swarm_client)
             from datetime import datetime, timedelta
             with database.get_conn() as conn:
                 with conn.cursor() as cur:
@@ -1496,7 +1447,7 @@ async def process_download_job(job: dict):
                 await app.send_message(message.chat.id, f"Message {link} does not contain supported media.")
                 continue
                 
-            # --- SaaS QUOTA CHECK ---
+            # --- SaaS QUOTA CHECK VIA ACCESS ENGINE ---
             file_size_bytes = 0
             if user_msg.photo:
                 file_size_bytes = user_msg.photo.file_size
@@ -1509,7 +1460,7 @@ async def process_download_job(job: dict):
                 
             file_size_bytes = file_size_bytes or 0
             
-            allowed, reason = database.check_and_update_limit(user_id, file_size_bytes)
+            allowed, reason = access_engine.can_execute(user_id, "single", file_size_bytes)
             if not allowed:
                 await status_msg.edit_text(
                     f"🚫 **DOWNLOAD REJECTED**\n\n"
@@ -1518,36 +1469,11 @@ async def process_download_job(job: dict):
                     f"{BUY_PREMIUM_PITCH}"
                 )
                 continue
-            # -------------------------
 
-            # --- ZERO-BYTE CACHE INTERCEPT (0.1% Hack) ---
-            cached_log_id = database.get_cached_link(chat_id, msg_id)
-            if cached_log_id and config.LOG_CHANNEL:
-                await status_msg.edit_text("\u23F3 **Preparing your download...**")
-                try:
-                    sent_msg = await app.copy_message(
-                        chat_id=user_id,
-                        from_chat_id=config.LOG_CHANNEL,
-                        message_id=cached_log_id,
-                        caption=user_msg.caption if user_msg.caption else ""
-                    )
-                    if sent_msg:
-                        database.increment_downloads()
-                        # Log if needed
-                        if config.LINK_LOG_CHANNEL and not silent_log:
-                            user_info = f"**User:** {message.from_user.mention} (`{user_id}`)\n**Link:** {link}\n\n⚡ **Action:** Instantiated from 0-Byte Cache"
-                            try:
-                                await user_app.send_message(chat_id=config.LINK_LOG_CHANNEL, text=user_info)
-                            except: pass
-                        continue # Skip to the next link!
-                except Exception as cache_err:
-                    print(f"Cache miss/error: {cache_err}. Proceeding to physical download...")
-            # ---------------------------------------------
-
-            await status_msg.edit_text("\u23F3 **Preparing your download...**")
+            await status_msg.edit_text("⏳ **Processing your download...**")
             start_time = time.time()
             last_update_time = [start_time]
-            
+
             # --- Cryptographic Re-Keying Intercept ---
             try:
                 import pyrogram
@@ -1557,109 +1483,29 @@ async def process_download_job(job: dict):
             except Exception as e:
                 print(f"Re-Keying skip: {e}")
 
-            # --- ZERO-DISK RAM STREAMING (< 75MB) vs HYDRA/SWARM DISK BUFFER ---
-            file_path = await download_media_adaptive(
-                downloader,
-                user_msg,
-                file_size_bytes,
-                progress=progress_callback,
-                progress_args=(status_msg, "⚡ Streaming (RAM Pipe)... 📥", start_time, last_update_time)
+            sent_msg = await media_pipeline.deliver_media(
+                source_msg=user_msg,
+                target_chat_id=message.chat.id,
+                user_id=user_id,
+                is_admin=is_admin(user_id),
+                downloader=downloader,
+                progress_callback=progress_callback,
+                progress_args=(status_msg, "Processing Media... 📥", start_time, last_update_time)
             )
 
-            if not file_path:
-                from memory_injector import HydraDownloader
-                try:
-                    swarm_pool = [downloader] + SWARM_CLIENTS  # Multiplex across all available nodes
-                    conns = 15 if user_id in config.OWNER_IDS else 5
-                    hydra = HydraDownloader(swarm_pool, max_connections=conns)
-                    file_path = await hydra.download(
-                        user_msg,
-                        progress_callback=progress_callback,
-                        progress_args=(status_msg, "Injecting Shards... 📥", start_time, last_update_time)
-                    )
-                except Exception as e:
-                    print(f"Hydra Shard Failed, falling back: {e}")
-                    file_path = await downloader.download_media(
-                        user_msg,
-                        progress=progress_callback,
-                        progress_args=(status_msg, "Downloading Media... 📥", start_time, last_update_time)
-                    )
-
-            if not file_path:
+            if not sent_msg:
                 await app.send_message(message.chat.id, f"Failed to download media for {link}")
                 continue
 
-            await status_msg.edit_text("Uploading media to you... 📤")
+            database.increment_downloads()
+            access_engine.record_usage(user_id, file_size_bytes)
 
-            caption = user_msg.caption if user_msg.caption else ""
-            start_time = time.time()
-            last_update_time = [start_time]
-            progress_args = (status_msg, "Uploading Media... 📤", start_time, last_update_time)
-
-            sent_msg = None
-            if user_msg.photo:
-                sent_msg = await app.send_photo(message.chat.id, photo=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            elif user_msg.video:
-                v_thumb = None
-                if isinstance(file_path, str):
-                    ext_dur, ext_w, ext_h, ext_thumb = get_video_metadata(file_path)
-                    v_duration = (user_msg.video.duration if user_msg.video else 0) or ext_dur
-                    v_width = (user_msg.video.width if user_msg.video else 0) or ext_w
-                    v_height = (user_msg.video.height if user_msg.video else 0) or ext_h
-                    v_thumb = ext_thumb
-                else:
-                    v_duration = (user_msg.video.duration if user_msg.video else 0)
-                    v_width = (user_msg.video.width if user_msg.video else 0)
-                    v_height = (user_msg.video.height if user_msg.video else 0)
-                    if user_msg.video.thumbs:
-                        try:
-                            v_thumb = await downloader.download_media(user_msg.video.thumbs[0].file_id, in_memory=True)
-                        except Exception:
-                            v_thumb = None
-
-                sent_msg = await app.send_video(
-                    chat_id=message.chat.id,
-                    video=file_path,
-                    caption=caption,
-                    duration=v_duration,
-                    width=v_width,
-                    height=v_height,
-                    thumb=v_thumb,
-                    progress=progress_callback,
-                    progress_args=progress_args
-                )
-                cleanup_media(v_thumb)
-            elif user_msg.document:
-                sent_msg = await app.send_document(message.chat.id, document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            elif user_msg.audio:
-                sent_msg = await app.send_audio(message.chat.id, audio=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            elif user_msg.voice:
-                sent_msg = await app.send_voice(message.chat.id, voice=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-            else:
-                sent_msg = await app.send_document(message.chat.id, document=file_path, caption=caption, progress=progress_callback, progress_args=progress_args)
-
-            if sent_msg:
-                database.increment_downloads()
-                if not is_admin(user_id):
-                    schedule_auto_delete(app, message.chat.id, sent_msg.id, 300)
-
-            if config.LINK_LOG_CHANNEL and sent_msg and not silent_log:
+            if config.LINK_LOG_CHANNEL and not silent_log:
                 user_info = f"**User:** {message.from_user.mention} (`{message.from_user.id}`)\n**Link:** {link}\n\n⬇️ **Action:** Downloaded media"
                 try:
                     await user_app.send_message(chat_id=config.LINK_LOG_CHANNEL, text=user_info)
                 except Exception as log_err:
                     print(f"Failed to log text to LINK_LOG_CHANNEL: {log_err}")
-
-            if config.LOG_CHANNEL and sent_msg and not silent_log and str(config.LOG_CHANNEL) != str(user_id):
-                try:
-                    log_sent_msg = await sent_msg.copy(config.LOG_CHANNEL)
-                    if log_sent_msg:
-                        database.save_cached_link(chat_id, msg_id, log_sent_msg.id)
-                        
-                except Exception as log_err:
-                    print(f"Failed to log media to LOG_CHANNEL: {log_err}")
-
-            cleanup_media(file_path)
 
         except FloodWait as e:
             await app.send_message(message.chat.id, f"FloodWait error. Need to wait {e.value} seconds.")
@@ -1704,31 +1550,15 @@ async def silent_download_and_send(user_msg: Message, dest_user_id: int):
                 await app.send_message(dest_user_id, user_msg.text)
             return
 
-        file_path = await user_app.download_media(user_msg)
-        if not file_path:
-            return
-
-        caption = user_msg.caption if user_msg.caption else ""
-        
-        sent_msg = None
-        if user_msg.photo:
-            sent_msg = await app.send_photo(dest_user_id, photo=file_path, caption=caption)
-        elif user_msg.video:
-            sent_msg = await app.send_video(dest_user_id, video=file_path, caption=caption)
-        elif user_msg.document:
-            sent_msg = await app.send_document(dest_user_id, document=file_path, caption=caption)
-        elif user_msg.audio:
-            sent_msg = await app.send_audio(dest_user_id, audio=file_path, caption=caption)
-        elif user_msg.voice:
-            sent_msg = await app.send_voice(dest_user_id, voice=file_path, caption=caption)
-        else:
-            sent_msg = await app.send_document(dest_user_id, document=file_path, caption=caption) 
-
+        sent_msg = await media_pipeline.deliver_media(
+            source_msg=user_msg,
+            target_chat_id=dest_user_id,
+            user_id=dest_user_id,
+            is_admin=is_admin(dest_user_id),
+            downloader=user_app
+        )
         if sent_msg:
             database.increment_downloads()
-
-        if os.path.exists(file_path):
-            os.remove(file_path)
             
     except Exception as e:
         print(f"Silent forward failed: {e}")
@@ -1780,14 +1610,10 @@ async def main():
         print("Exiting due to missing configuration.")
         return
 
-    # Start Flask in background thread FIRST so Render detects the port immediately
+    # Start keep-alive web server in background thread FIRST so Render detects the port immediately
     port = int(os.environ.get("PORT", 8080))
     print(f"Starting web server on port {port}...")
-    flask_thread = threading.Thread(
-        target=lambda: web_app.run(host="0.0.0.0", port=port),
-        daemon=True
-    )
-    flask_thread.start()
+    start_keep_alive(port=port)
     print("Web server started!")
 
     print("Starting User Client...")
@@ -1833,6 +1659,7 @@ async def main():
                 sc = Client(f"swarm_{d_uid}", api_id=config.API_ID, api_hash=config.API_HASH, session_string=d_sess, in_memory=True)
                 await sc.start()
                 SWARM_CLIENTS.append(sc)
+                swarm_pool.add_active_client(int(d_uid), sc)
             except Exception as e:
                 print(f"  ⚠️ Failed to boot swarm node {d_uid}: {e}")
         print(f"✅ Swarm Network ONLINE: {len(SWARM_CLIENTS)} nodes active.")
