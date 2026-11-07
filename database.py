@@ -1,9 +1,22 @@
 import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
+from psycopg2.pool import ThreadedConnectionPool
 from contextlib import contextmanager
 
 SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL", "")
+
+_pool = None
+
+def get_pool():
+    global _pool
+    if _pool is None and SUPABASE_DB_URL:
+        try:
+            _pool = ThreadedConnectionPool(minconn=1, maxconn=10, dsn=SUPABASE_DB_URL, cursor_factory=RealDictCursor)
+        except Exception as e:
+            print(f"[DB POOL WARNING] Failed to initialize connection pool: {e}")
+            _pool = None
+    return _pool
 
 @contextmanager
 def get_conn():
@@ -12,11 +25,19 @@ def get_conn():
             "SUPABASE_DB_URL is not set. Please define SUPABASE_DB_URL with a valid "
             "PostgreSQL connection string (e.g. in your .env file or deployment environment)."
         )
-    conn = psycopg2.connect(SUPABASE_DB_URL, cursor_factory=RealDictCursor)
-    try:
-        yield conn
-    finally:
-        conn.close()
+    pool = get_pool()
+    if pool:
+        conn = pool.getconn()
+        try:
+            yield conn
+        finally:
+            pool.putconn(conn)
+    else:
+        conn = psycopg2.connect(SUPABASE_DB_URL, cursor_factory=RealDictCursor)
+        try:
+            yield conn
+        finally:
+            conn.close()
 
 def init_db():
     """Create tables if they don't exist. Called once on bot startup."""
@@ -215,16 +236,11 @@ def check_and_update_limit(user_id: int, file_size_bytes: int) -> tuple[bool, st
         
     with get_conn() as conn:
         with conn.cursor() as cur:
-            # 1. Clear old daily limits and downgrade expired premium internally
+            # 1. Clear old daily limits strictly for this user and downgrade expired premium
             cur.execute("""
                 UPDATE users 
-                SET daily_bytes = 0 
-                WHERE last_used_date < CURRENT_DATE;
-            """)
-            cur.execute("""
-                UPDATE users
-                SET last_used_date = CURRENT_DATE
-                WHERE user_id = %s;
+                SET daily_bytes = 0, last_used_date = CURRENT_DATE 
+                WHERE user_id = %s AND last_used_date < CURRENT_DATE;
             """, (user_id,))
             
             cur.execute("""
@@ -272,18 +288,23 @@ def generate_key(key_string: str, tier: str, days: int):
 def redeem_key(user_id: int, key_string: str) -> tuple[bool, str]:
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("SELECT tier, days, used_by FROM premium_keys WHERE key_string = %s", (key_string,))
-            key_data = cur.fetchone()
-            if not key_data:
+            # Atomic claim: update only if key exists and used_by is null
+            cur.execute("""
+                UPDATE premium_keys 
+                SET used_by = %s, used_at = NOW() 
+                WHERE key_string = %s AND used_by IS NULL
+                RETURNING tier, days;
+            """, (user_id, key_string))
+            claimed = cur.fetchone()
+            if not claimed:
+                cur.execute("SELECT used_by FROM premium_keys WHERE key_string = %s", (key_string,))
+                existing = cur.fetchone()
+                if existing and existing["used_by"]:
+                    return False, "Key has already been used."
                 return False, "Invalid key."
-            if key_data["used_by"]:
-                return False, "Key has already been used."
             
-            tier = key_data["tier"]
-            days = key_data["days"]
-            
-            # Apply key
-            cur.execute("UPDATE premium_keys SET used_by = %s, used_at = NOW() WHERE key_string = %s", (user_id, key_string))
+            tier = claimed["tier"]
+            days = claimed["days"]
             
             # Update user plan
             cur.execute("""
@@ -292,7 +313,6 @@ def redeem_key(user_id: int, key_string: str) -> tuple[bool, str]:
                     premium_expiry = COALESCE(premium_expiry, NOW()) + floor(%s * 86400) * interval '1 second'
                 WHERE user_id = %s
             """, (tier, days, user_id))
-            
             
         conn.commit()
     return True, f"Successfully upgraded to **{tier.title()} Plan** for {days} days!"

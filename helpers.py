@@ -2,6 +2,7 @@ import re
 import os
 import asyncio
 import subprocess
+import config
 
 def is_owner(user_id: int) -> bool:
     return user_id in config.OWNER_IDS

@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import math
 import time
 import os
@@ -85,7 +85,8 @@ class HydraDownloader:
         
         output_dir = "downloads/"
         os.makedirs(output_dir, exist_ok=True)
-        file_name = getattr(media, "file_name", f"{message.id}_{file_id[:10]}")
+        raw_file_name = getattr(media, "file_name", f"{message.id}_{file_id[:10]}") or f"{message.id}_{file_id[:10]}"
+        file_name = os.path.basename(raw_file_name)
         out_path = os.path.join(output_dir, file_name)
         
         start_time = time.time()
@@ -126,6 +127,14 @@ class HydraDownloader:
             print(f"Hydra Downloader failed: {e}")
             raise e
             
-        print(f"âœ… [HYDRA INJECTOR PROCESSED] {file_size/1024/1024:.2f}MB in {time.time() - start_time:.2f}s")
+        if downloaded != file_size:
+            if os.path.exists(out_path):
+                try:
+                    os.remove(out_path)
+                except Exception:
+                    pass
+            raise IOError(f"Hydra download incomplete: received {downloaded}/{file_size} bytes")
+
+        print(f"✅ [HYDRA INJECTOR PROCESSED] {file_size/1024/1024:.2f}MB in {time.time() - start_time:.2f}s")
         return out_path
 
