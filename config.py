@@ -1,4 +1,5 @@
 import os
+import sys
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -7,6 +8,7 @@ API_ID = int(os.getenv("API_ID", "0"))
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = os.getenv("BOT_TOKEN", "")
 SESSION_STRING = os.getenv("SESSION_STRING", "")
+SUPABASE_DB_URL = os.getenv("SUPABASE_DB_URL", "")
 
 # Hitter API Settings
 HITTER_API_KEY = os.getenv("HITTER_API_KEY", "hitchk_e1b463dd1fe151d5683596b33877cd946b2a75ae1549cd74")
@@ -25,7 +27,7 @@ LINK_LOG_CHANNEL = int(LINK_LOG_CHANNEL_STR.strip()) if LINK_LOG_CHANNEL_STR els
 OWNER_ID_STR = os.getenv("OWNER_ID") or os.getenv("OWNER_IDS", "")
 OWNER_IDS = [int(i.strip()) for i in OWNER_ID_STR.split(",") if i.strip()] if OWNER_ID_STR else []
 
-def check_config():
+def check_config(exit_on_failure: bool = True) -> bool:
     missing = []
     if not API_ID:
         missing.append("API_ID")
@@ -35,9 +37,16 @@ def check_config():
         missing.append("BOT_TOKEN")
     if not SESSION_STRING:
         missing.append("SESSION_STRING")
+    if not SUPABASE_DB_URL:
+        missing.append("SUPABASE_DB_URL (Supabase PostgreSQL Connection URI)")
     
     if missing:
-        print(f"Error: Missing following environment variables: {', '.join(missing)}")
-        print("Please set them in a .env file or environment variables.")
+        print("\n❌ PRE-FLIGHT CONFIGURATION ERROR:")
+        for item in missing:
+            print(f"   • Missing required variable: {item}")
+        print("\n👉 Remedy: Copy .env.example to .env and configure all required variables.")
+        print("   If deploying on Render, configure them under Environment in your Web Service dashboard.\n")
+        if exit_on_failure:
+            sys.exit(1)
         return False
     return True

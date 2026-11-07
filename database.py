@@ -1,4 +1,4 @@
-﻿import os
+import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from contextlib import contextmanager
@@ -7,6 +7,11 @@ SUPABASE_DB_URL = os.environ.get("SUPABASE_DB_URL", "")
 
 @contextmanager
 def get_conn():
+    if not SUPABASE_DB_URL:
+        raise ValueError(
+            "SUPABASE_DB_URL is not set. Please define SUPABASE_DB_URL with a valid "
+            "PostgreSQL connection string (e.g. in your .env file or deployment environment)."
+        )
     conn = psycopg2.connect(SUPABASE_DB_URL, cursor_factory=RealDictCursor)
     try:
         yield conn
